@@ -1,0 +1,7 @@
+numpy
+gymnasium
+tensorflow==2.10
+matplotlib
+plotly
+pygame
+scipy
