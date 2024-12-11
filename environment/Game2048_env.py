@@ -81,6 +81,7 @@ class Game2048_env(gym.Env):
             reward = -10 #Penalità nel caso in cui l'agente fa un'azione inconcludente
             done = True
         else:
+            print("Score attuale:", np.sum(self.game.board))
             reward = np.sum(self.game.board) - prev_score
             done = False
             game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
