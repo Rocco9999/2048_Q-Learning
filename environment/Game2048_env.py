@@ -76,29 +76,71 @@ class Game2048_env(gym.Env):
         self.game = Game2048()
         self.score = 0
         self.penalty = 10
+        self.previous_max = 0
+        self. previous_monotonicity = 0
         #Osservazioni per l'agente
         self.action_space = spaces.Discrete(4)  # Azioni: sinistra, sopra, destra, sotto
         self.observation_space = spaces.Box(0, 2048, shape=(4, 4), dtype=int)
 
     def step(self, action):
+        self.previous_monotonicity = self.calculate_monotonicity()
         valid, score = self.game.move(action)
         game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
+        max_number = np.max(self.game.board)
+        reward = 0
+        num_empty_cell = np.count_nonzero(self.game.board == 0) 
         self.score += score
         done = False
-        max_number = 0
         if not valid:
-            if np.max(self.game.board) is 2048:
-                reward= score
+            if max_number in [512, 1024, 2048]:
+                reward = max_number * 2
             else:
-                reward = -self.penalty #Penalità nel caso in cui l'agente fa un'azione inconcludente
+                factor = num_empty_cell / 16  # Proporzione di celle vuote
+
+                # Penalità dinamica basata sullo stato
+                reward = -(self.penalty * (1 - factor) * (max_number / 2048))  #Penalità nel caso in cui l'agente fa un'azione inconcludente
+            
             if game_over:
                 done = True
-            max_number = np.max(self.game.board)
         else:
             #print("Score attuale:", np.sum(self.game.board))
-            max_number = np.max(self.game.board)
-            reward = score
+            reward += score
+
+            # Bonus per tessere più grandi
+            if max_number > self.previous_max:
+                reward += (max_number - self.previous_max) * 3
+                self.previous_max = max_number
+
+            # Bonus per celle vuote
+            reward += 2 * num_empty_cell
+
+            current_monotonicity = self.calculate_monotonicity()
+            # Bonus per la monotonicità
+            reward += current_monotonicity * 1.5
+
+            if current_monotonicity < self.previous_monotonicity:
+                reward -= (self.previous_monotonicity - current_monotonicity) * 1.5
+
+
+            #Penalizza per griglie piene
+            reward -= (16 - num_empty_cell) * 0.25
+
+
         return self.game.board, reward, done, max_number
+    
+    def calculate_monotonicity(self):
+        monotonicity = 0
+        board = self.game.board
+        for row in board:
+            for i in range(len(row) - 1):
+                if row[i] >= row[i + 1]:
+                    monotonicity += 1
+        for col in board.T:
+            for i in range(len(col) - 1):
+                if col[i] >= col[i + 1]:
+                    monotonicity += 1
+        return monotonicity
+
 
     def reset(self):
         #Resetta l'ambiente di gioco dopo aver terminato

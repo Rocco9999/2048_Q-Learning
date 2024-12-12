@@ -65,15 +65,16 @@ if __name__ == "__main__":
             q_values = agent.q_table[state]
             max_value = np.max(next_state)
 
-            # Salva le informazioni nel file CSV
-            log_debug_info(log_file, episode, action, q_values, reward, max_value)
-
             agent.update_q_value(state, action, reward, next_state, done)  # Aggiorna il valore Q
             state = next_state  # Passa allo stato successivo
             total_reward += reward  # Accumula la ricompensa
+            
+            if done:
+                # Salva le informazioni nel file CSV
+                log_debug_info(log_file, episode, action, q_values, reward, max_value)
         
         agent.decay_exploration()  # Riduce il tasso di esplorazione
-        if (counterPrint == 10):
+        if (counterPrint == 100):
             print(f"Episode {episode}: Total Reward: {total_reward}")
             #print(f"Episode: {episode}, State: {state}, Action: {action}, Q-Values: {q_values}, Reward: {reward}")
             counterPrint = 0
