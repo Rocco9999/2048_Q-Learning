@@ -64,6 +64,13 @@ class Game2048:
                 self.board = test_board
                 return False
         return True
+    
+    def calculateReward(self):
+        zero_number = len(list(zip(*np.where(self.board == 0))))
+        if zero_number > 0:
+            print("Ci sono numeri vuoti")
+        else:
+            print("Non ci sono numeri vuoti")
 
 class Game2048_env(gym.Env):
     def __init__(self):
@@ -77,15 +84,20 @@ class Game2048_env(gym.Env):
         prev_score = np.sum(self.game.board)
         valid = self.game.move(action)
         game_over = False
+        max_number = 0
         if not valid:
             reward = -10 #Penalità nel caso in cui l'agente fa un'azione inconcludente
             done = True
+            max_number = np.max(self.game.board)
+            self.game.calculateReward()
         else:
             print("Score attuale:", np.sum(self.game.board))
             reward = np.sum(self.game.board) - prev_score
             done = False
             game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
-        return self.game.board, reward, done, game_over
+            max_number = np.max(self.game.board)
+            self.game.calculateReward()
+        return self.game.board, reward, done, game_over, max_number
 
     def reset(self):
         #Resetta l'ambiente di gioco dopo aver terminato
@@ -106,9 +118,10 @@ if __name__ == "__main__":
         # action = int(input("Scegli un'azione (0: sinistra, 1: sopra, 2: destra, 3: sotto): "))
         action = np.random.randint(0,3) #Per testing
         print("L'azione scelta è stata: ", action)
-        state, reward, done, game_over = env.step(action)
+        state, reward, done, game_over, max_number = env.step(action)
         #Ci salviamo anche lo stato in vista dell'interazione con l'agente
         env.showMatrix()
+        print(f"Il numero più alto in griglia è: {max_number}")
         print(f"Reward: {reward}")
 
     print("Game Over!")
