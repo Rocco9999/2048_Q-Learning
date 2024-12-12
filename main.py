@@ -52,17 +52,5 @@ if __name__ == "__main__":
         agent.decay_exploration()  # Riduce il tasso di esplorazione
         print(f"Episode {episode + 1}: Total Reward: {total_reward}")
     
-    for state, actions in agent.q_table.items():
-        print(f"State: {state}, Q-Values: {actions}")
     
     max_tiles = []
-
-for episode in range(num_episodes):
-    max_tile = np.max(env.game.board)
-    max_tiles.append(max_tile)
-
-plt.plot(range(len(max_tiles)), max_tiles)
-plt.xlabel("Episodi")
-plt.ylabel("Tessera più Alta")
-plt.title("Progressione della Tessera Massima")
-plt.show()

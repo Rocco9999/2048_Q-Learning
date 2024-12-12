@@ -63,10 +63,13 @@ class Game2048:
             if self.move(action):
                 self.board = test_board
                 return False
+        
+        print("Score attuale:", np.sum(self.board))
         return True
     
     def calculateReward(self):
         empty_cells = len(list(zip(*np.where(self.board == 0))))
+        
         max_tile = np.max(self.board)
         reward = empty_cells * 0.5 + max_tile / 100
         return reward
@@ -86,11 +89,11 @@ class Game2048_env(gym.Env):
         game_over = False
         max_number = 0
         if not valid:
-            reward = -10 #Penalità nel caso in cui l'agente fa un'azione inconcludente
+            reward = -10 + self.game.calculateReward() #Penalità nel caso in cui l'agente fa un'azione inconcludente
             done = True
             max_number = np.max(self.game.board)
         else:
-            print("Score attuale:", np.sum(self.game.board))
+            #print("Score attuale:", np.sum(self.game.board))
             done = False
             game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
             max_number = np.max(self.game.board)
