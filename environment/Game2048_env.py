@@ -87,7 +87,10 @@ class Game2048_env(gym.Env):
         done = False
         max_number = 0
         if not valid:
-            reward = -self.penalty #Penalità nel caso in cui l'agente fa un'azione inconcludente
+            if np.max(self.game.board) is 2048:
+                reward= score
+            else:
+                reward = -self.penalty #Penalità nel caso in cui l'agente fa un'azione inconcludente
             if game_over:
                 done = True
             max_number = np.max(self.game.board)

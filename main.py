@@ -7,14 +7,15 @@ import matplotlib.pyplot as plt
 import csv
 
 class QLearningAgent:
-    def __init__(self, action_space, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0, exploration_decay=0.995, exploration_min=0.01):
+    def __init__(self, total_epochs, action_space, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0, exploration_min=0.01):
         self.q_table = defaultdict(lambda: np.zeros(action_space))  # Tabella Q inizializzata a zero
         self.lr = learning_rate  # Tasso di apprendimento
         self.gamma = discount_factor  # Fattore di sconto
         self.epsilon = exploration_rate  # Tasso di esplorazione
-        self.epsilon_decay = exploration_decay  # Decadimento esplorazione
         self.epsilon_min = exploration_min  # Valore minimo di esplorazione
         self.action_space = action_space  # Numero di azioni disponibili
+        self.total_epochs = total_epochs  # Numero totale di epoche
+        self.epsilon_decay_linear = (exploration_rate - exploration_min) / total_epochs  # Decadimento lineare
 
     def choose_action(self, state):
         if random.random() < self.epsilon:
@@ -28,17 +29,18 @@ class QLearningAgent:
         self.q_table[state][action] += self.lr * (target - self.q_table[state][action])
 
     def decay_exploration(self):
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        self.epsilon = max(self.epsilon_min, self.epsilon - self.epsilon_decay_linear)
 
-def log_debug_info(file_path, episode, state, action, q_values, reward, next_state):
+def log_debug_info(file_path, episode, action, q_values, reward, max_value):
     with open(file_path, mode="a", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow([episode, state, action, q_values, reward, next_state])
+        writer.writerow([episode, action, q_values, reward, max_value])
 
 
 if __name__ == "__main__":
     env = Game2048_env()
-    agent = QLearningAgent(action_space=env.action_space.n)
+    num_episodes = 10000
+    agent = QLearningAgent(num_episodes, action_space=env.action_space.n)
 
 # File per salvare i log
     log_file = "debug_log.csv"
@@ -46,10 +48,9 @@ if __name__ == "__main__":
     # Crea l'intestazione del file CSV
     with open(log_file, mode="w", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow(["Episode", "State", "Action", "Q-Values", "Reward", "Next State"])
+        writer.writerow(["Episode", "Action", "Q-Values", "Reward", "Max Value"])
 
     counterPrint = 0
-    num_episodes = 1000
     for episode in range(num_episodes):
         state = env.reset()  # Inizializza l'ambiente
         state = tuple(map(tuple, state))  # Appiattisce la griglia per usarla come chiave nella tabella Q
@@ -62,18 +63,19 @@ if __name__ == "__main__":
             next_state = tuple(map(tuple, next_state))  # Appiattisce il nuovo stato
              # Debug: Stampa le informazioni nel terminale
             q_values = agent.q_table[state]
+            max_value = np.max(next_state)
 
             # Salva le informazioni nel file CSV
-            log_debug_info(log_file, episode, state, action, q_values, reward, next_state)
+            log_debug_info(log_file, episode, action, q_values, reward, max_value)
 
             agent.update_q_value(state, action, reward, next_state, done)  # Aggiorna il valore Q
             state = next_state  # Passa allo stato successivo
             total_reward += reward  # Accumula la ricompensa
         
         agent.decay_exploration()  # Riduce il tasso di esplorazione
-        if (counterPrint is 10):
+        if (counterPrint == 10):
             print(f"Episode {episode}: Total Reward: {total_reward}")
-            print(f"Episode: {episode}, State: {state}, Action: {action}, Q-Values: {q_values}, Reward: {reward}")
+            #print(f"Episode: {episode}, State: {state}, Action: {action}, Q-Values: {q_values}, Reward: {reward}")
             counterPrint = 0
 
         counterPrint += 1
