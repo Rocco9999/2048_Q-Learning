@@ -66,11 +66,11 @@ class Game2048:
         return True
     
     def calculateReward(self):
-        zero_number = len(list(zip(*np.where(self.board == 0))))
-        if zero_number > 0:
-            print("Ci sono numeri vuoti")
-        else:
-            print("Non ci sono numeri vuoti")
+        empty_cells = len(list(zip(*np.where(self.board == 0))))
+        max_tile = np.max(self.board)
+        reward = empty_cells * 0.5 + max_tile / 100
+        return reward
+
 
 class Game2048_env(gym.Env):
     def __init__(self):
@@ -89,14 +89,12 @@ class Game2048_env(gym.Env):
             reward = -10 #Penalità nel caso in cui l'agente fa un'azione inconcludente
             done = True
             max_number = np.max(self.game.board)
-            self.game.calculateReward()
         else:
             print("Score attuale:", np.sum(self.game.board))
-            reward = np.sum(self.game.board) - prev_score
             done = False
             game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
             max_number = np.max(self.game.board)
-            self.game.calculateReward()
+            reward = self.game.calculateReward()
         return self.game.board, reward, done, game_over, max_number
 
     def reset(self):
@@ -109,7 +107,6 @@ class Game2048_env(gym.Env):
 
 if __name__ == "__main__":
     env = Game2048_env()
-    state = env.reset()
     env.showMatrix()
 
     done = False
