@@ -4,6 +4,7 @@ import numpy as np
 import random
 from collections import defaultdict
 import matplotlib.pyplot as plt
+import csv
 
 class QLearningAgent:
     def __init__(self, action_space, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0, exploration_decay=0.995, exploration_min=0.01):
@@ -29,28 +30,51 @@ class QLearningAgent:
     def decay_exploration(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
+def log_debug_info(file_path, episode, state, action, q_values, reward, next_state):
+    with open(file_path, mode="a", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([episode, state, action, q_values, reward, next_state])
+
+
 if __name__ == "__main__":
     env = Game2048_env()
     agent = QLearningAgent(action_space=env.action_space.n)
 
+# File per salvare i log
+    log_file = "debug_log.csv"
+
+    # Crea l'intestazione del file CSV
+    with open(log_file, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["Episode", "State", "Action", "Q-Values", "Reward", "Next State"])
+
+    counterPrint = 0
     num_episodes = 1000
     for episode in range(num_episodes):
         state = env.reset()  # Inizializza l'ambiente
-        state = tuple(state.flatten())  # Appiattisce la griglia per usarla come chiave nella tabella Q
+        state = tuple(map(tuple, state))  # Appiattisce la griglia per usarla come chiave nella tabella Q
         done = False
-        game_over = False
         total_reward = 0
 
-        while not game_over:
+        while not done:
             action = agent.choose_action(state)  # L'agente sceglie un'azione
-            next_state, reward, done, game_over, info = env.step(action)  # Esegue l'azione nell'ambiente
-            next_state = tuple(next_state.flatten())  # Appiattisce il nuovo stato
+            next_state, reward, done, info = env.step(action)  # Esegue l'azione nell'ambiente
+            next_state = tuple(map(tuple, next_state))  # Appiattisce il nuovo stato
+             # Debug: Stampa le informazioni nel terminale
+            q_values = agent.q_table[state]
+
+            # Salva le informazioni nel file CSV
+            log_debug_info(log_file, episode, state, action, q_values, reward, next_state)
+
             agent.update_q_value(state, action, reward, next_state, done)  # Aggiorna il valore Q
             state = next_state  # Passa allo stato successivo
             total_reward += reward  # Accumula la ricompensa
-
+        
         agent.decay_exploration()  # Riduce il tasso di esplorazione
-        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
+        if (counterPrint is 10):
+            print(f"Episode {episode}: Total Reward: {total_reward}")
+            print(f"Episode: {episode}, State: {state}, Action: {action}, Q-Values: {q_values}, Reward: {reward}")
+            counterPrint = 0
+
+        counterPrint += 1
     
-    
-    max_tiles = []

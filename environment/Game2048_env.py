@@ -16,6 +16,7 @@ class Game2048:
 
     def move_left(self):
         moved = False
+        score = 0
         for row in self.board:
             non_zero = row[row != 0]  # Rimuove gli zeri
             merged = []
@@ -27,6 +28,7 @@ class Game2048:
                     continue
                 if i + 1 < len(non_zero) and non_zero[i] == non_zero[i + 1]:
                     merged.append(non_zero[i] * 2)
+                    score += non_zero[i] * 2
                     skip = True
                     moved = True
                 else:
@@ -35,7 +37,8 @@ class Game2048:
             if not np.array_equal(row, merged):
                 moved = True
             row[:] = merged
-        return moved
+
+        return moved, score
 
     def rotate_board(self):
         self.board = np.rot90(self.board) # ruota in senso antiorario
@@ -47,12 +50,12 @@ class Game2048:
         moved = False
         for _ in range(action):
             self.rotate_board()
-        moved = self.move_left()
+        moved, score = self.move_left()
         for _ in range(-action % 4):
             self.rotate_board()
         if moved:
             self.add_number()
-        return moved
+        return moved, score
 
     def is_game_over(self):
         #Controllo per capire quando il gioco è effettivamente finito, non è possibile fare alcuna operazione 
@@ -60,45 +63,39 @@ class Game2048:
             return False
         for action in range(4):
             test_board = self.board.copy()
-            if self.move(action):
+            moved, _= self.move(action)
+            if moved:
                 self.board = test_board
                 return False
-        
-        print("Score attuale:", np.sum(self.board))
         return True
-    
-    def calculateReward(self):
-        empty_cells = len(list(zip(*np.where(self.board == 0))))
-        
-        max_tile = np.max(self.board)
-        reward = empty_cells * 0.5 + max_tile / 100
-        return reward
 
 
 class Game2048_env(gym.Env):
     def __init__(self):
         super(Game2048_env, self).__init__()
         self.game = Game2048()
+        self.score = 0
+        self.penalty = 10
         #Osservazioni per l'agente
         self.action_space = spaces.Discrete(4)  # Azioni: sinistra, sopra, destra, sotto
         self.observation_space = spaces.Box(0, 2048, shape=(4, 4), dtype=int)
 
     def step(self, action):
-        prev_score = np.sum(self.game.board)
-        valid = self.game.move(action)
-        game_over = False
+        valid, score = self.game.move(action)
+        game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
+        self.score += score
+        done = False
         max_number = 0
         if not valid:
-            reward = -10 + self.game.calculateReward() #Penalità nel caso in cui l'agente fa un'azione inconcludente
-            done = True
+            reward = -self.penalty #Penalità nel caso in cui l'agente fa un'azione inconcludente
+            if game_over:
+                done = True
             max_number = np.max(self.game.board)
         else:
             #print("Score attuale:", np.sum(self.game.board))
-            done = False
-            game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
             max_number = np.max(self.game.board)
-            reward = self.game.calculateReward()
-        return self.game.board, reward, done, game_over, max_number
+            reward = score
+        return self.game.board, reward, done, max_number
 
     def reset(self):
         #Resetta l'ambiente di gioco dopo aver terminato
@@ -106,6 +103,7 @@ class Game2048_env(gym.Env):
         return self.game.board
 
     def showMatrix(self):
+        print(self.score)
         print(self.game.board)
 
 if __name__ == "__main__":
@@ -114,14 +112,17 @@ if __name__ == "__main__":
 
     done = False
     game_over = False
-    while not game_over:
+    numAction = 0
+    while not done:
         # action = int(input("Scegli un'azione (0: sinistra, 1: sopra, 2: destra, 3: sotto): "))
         action = np.random.randint(0,3) #Per testing
+        numAction += 1
         print("L'azione scelta è stata: ", action)
-        state, reward, done, game_over, max_number = env.step(action)
+        state, reward, done, max_number = env.step(action)
         #Ci salviamo anche lo stato in vista dell'interazione con l'agente
         env.showMatrix()
         print(f"Il numero più alto in griglia è: {max_number}")
         print(f"Reward: {reward}")
 
+    print("Numero di mosse: ", numAction)
     print("Game Over!")
