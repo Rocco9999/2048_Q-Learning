@@ -2,6 +2,8 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
+
+##start
 class Game2048:
     def __init__(self):
         self.board = np.zeros((4, 4), dtype=int)  # Inizializza una griglia vuota
