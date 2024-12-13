@@ -74,7 +74,6 @@ class Game2048:
 
 
 class Game2048_env(gym.Env):
-    rewards_buffer = collections.deque(maxlen=100)
     def __init__(self):
         super(Game2048_env, self).__init__()
         self.game = Game2048()
@@ -147,8 +146,7 @@ class Game2048_env(gym.Env):
                 reward += bonus_progress
         
         # Normalizziamo la reward
-        normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
-        #print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
+        normalized_reward = self.normalizer.update_and_normalize(reward)
 
         return normalized_reward
 
@@ -163,24 +161,24 @@ class Game2048_env(gym.Env):
         print(self.game.board)
 
 class AdaptiveRewardNormalizer:
-    def __init__(self, k=3):
+    def __init__(self, window_size=100, k=3):
+        self.rewards_buffer = collections.deque(maxlen=window_size)
         self.k = k
         # Valori iniziali di fallback
         self.min_val = -10
         self.max_val = 2048
     
-    def update_and_normalize(self, reward, rewards_buffer):
+    def update_and_normalize(self, reward):
         # Aggiorna il buffer con la nuova reward
-        rewards_buffer.append(reward)
+        self.rewards_buffer.append(reward)
 
         # Se non abbiamo abbastanza dati, usiamo i fallback (range statico)
-        if len(rewards_buffer) < 10:
-            normalize_static = self._normalize_static(reward)
-            return normalize_static, rewards_buffer
+        if len(self.rewards_buffer) < 10:
+            return self._normalize_static(reward)
         
         # Calcoliamo media e std delle ultime reward
-        mean = sum(rewards_buffer) / len(rewards_buffer)
-        var = sum((r - mean)**2 for r in rewards_buffer) / len(rewards_buffer)
+        mean = sum(self.rewards_buffer) / len(self.rewards_buffer)
+        var = sum((r - mean)**2 for r in self.rewards_buffer) / len(self.rewards_buffer)
         std = math.sqrt(var)
 
         # Evitiamo std = 0
@@ -190,10 +188,9 @@ class AdaptiveRewardNormalizer:
         # Definiamo il range dinamico in base a mean e std
         dynamic_min = mean - self.k * std
         dynamic_max = mean + self.k * std
-        normalized_reward = self._normalize(reward, dynamic_min, dynamic_max)
 
         # Normalizziamo in base a questo range dinamico
-        return normalized_reward, rewards_buffer
+        return self._normalize(reward, dynamic_min, dynamic_max)
 
     def _normalize(self, reward, min_val, max_val):
         if max_val == min_val:
@@ -223,6 +220,7 @@ if __name__ == "__main__":
         #Ci salviamo anche lo stato in vista dell'interazione con l'agente
         env.showMatrix()
         print(f"Il numero più alto in griglia è: {max_number}")
+        print(f"Reward: {reward}")
 
     print("Numero di mosse: ", numAction)
     print("Game Over!")
