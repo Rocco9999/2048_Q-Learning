@@ -15,7 +15,7 @@ class QLearningAgent:
         self.epsilon_min = exploration_min  # Valore minimo di esplorazione
         self.action_space = action_space  # Numero di azioni disponibili
         self.total_epochs = total_epochs  # Numero totale di epoche
-        self.epsilon_decay_linear = (exploration_rate - exploration_min) / total_epochs  # Decadimento lineare
+        self.epsilon_decay_linear = (exploration_rate - exploration_min) / (total_epochs * 0.75) # Decadimento lineare
 
     def choose_action(self, state):
         if random.random() < self.epsilon:
