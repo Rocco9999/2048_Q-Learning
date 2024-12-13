@@ -39,7 +39,7 @@ def log_debug_info(file_path, episode, action, q_values, reward, max_value):
 
 if __name__ == "__main__":
     env = Game2048_env()
-    num_episodes = 100000
+    num_episodes = 200000
     agent = QLearningAgent(num_episodes, action_space=env.action_space.n)
 
 # File per salvare i log
