@@ -2,6 +2,8 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 from math import log2
+import collections
+import math
 
 class Game2048:
     def __init__(self):
@@ -82,6 +84,9 @@ class Game2048_env(gym.Env):
         self.action_space = spaces.Discrete(4)  # Azioni: sinistra, sopra, destra, sotto
         self.observation_space = spaces.Box(0, 2048, shape=(4, 4), dtype=int)
 
+                # Esempio d'uso:
+        self.normalizer = AdaptiveRewardNormalizer()
+
     def step(self, action):
         valid, score = self.game.move(action)
         game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
@@ -139,8 +144,11 @@ class Game2048_env(gym.Env):
             # Aggiungiamo l'eventuale bonus se abbiamo superato il precedente record
             if bonus_progress > 0:
                 reward += bonus_progress
+        
+        # Normalizziamo la reward
+        normalized_reward = self.normalizer.update_and_normalize(reward)
 
-        return reward
+        return normalized_reward
 
 
     def reset(self):
@@ -151,6 +159,50 @@ class Game2048_env(gym.Env):
     def showMatrix(self):
         print(self.score)
         print(self.game.board)
+
+class AdaptiveRewardNormalizer:
+    def __init__(self, window_size=100, k=3):
+        self.rewards_buffer = collections.deque(maxlen=window_size)
+        self.k = k
+        # Valori iniziali di fallback
+        self.min_val = -10
+        self.max_val = 2048
+    
+    def update_and_normalize(self, reward):
+        # Aggiorna il buffer con la nuova reward
+        self.rewards_buffer.append(reward)
+
+        # Se non abbiamo abbastanza dati, usiamo i fallback (range statico)
+        if len(self.rewards_buffer) < 10:
+            return self._normalize_static(reward)
+        
+        # Calcoliamo media e std delle ultime reward
+        mean = sum(self.rewards_buffer) / len(self.rewards_buffer)
+        var = sum((r - mean)**2 for r in self.rewards_buffer) / len(self.rewards_buffer)
+        std = math.sqrt(var)
+
+        # Evitiamo std = 0
+        if std < 1e-6:
+            std = 1e-6
+
+        # Definiamo il range dinamico in base a mean e std
+        dynamic_min = mean - self.k * std
+        dynamic_max = mean + self.k * std
+
+        # Normalizziamo in base a questo range dinamico
+        return self._normalize(reward, dynamic_min, dynamic_max)
+
+    def _normalize(self, reward, min_val, max_val):
+        if max_val == min_val:
+            return 0
+        norm = (reward - min_val) / (max_val - min_val)
+        norm = norm * 2 - 1
+        # Clip nel caso di floating-point rounding
+        return max(-1, min(1, norm))
+
+    def _normalize_static(self, reward):
+        # Usa il range statico come fallback quando abbiamo pochi dati
+        return self._normalize(reward, self.min_val, self.max_val)
 
 if __name__ == "__main__":
     env = Game2048_env()
