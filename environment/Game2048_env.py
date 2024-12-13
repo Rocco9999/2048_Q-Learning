@@ -1,6 +1,7 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+from math import log2
 
 class Game2048:
     def __init__(self):
@@ -77,13 +78,11 @@ class Game2048_env(gym.Env):
         self.score = 0
         self.penalty = 10
         self.previous_max = 0
-        self. previous_monotonicity = 0
         #Osservazioni per l'agente
         self.action_space = spaces.Discrete(4)  # Azioni: sinistra, sopra, destra, sotto
         self.observation_space = spaces.Box(0, 2048, shape=(4, 4), dtype=int)
 
     def step(self, action):
-        self.previous_monotonicity = self.calculate_monotonicity()
         valid, score = self.game.move(action)
         game_over = self.game.is_game_over() #Il gioco è terminato o con una vittoria o con una sconfitta
         max_number = np.max(self.game.board)
@@ -91,55 +90,57 @@ class Game2048_env(gym.Env):
         num_empty_cell = np.count_nonzero(self.game.board == 0) 
         self.score += score
         done = False
-        if not valid:
-            if max_number in [512, 1024, 2048]:
-                reward = max_number * 2
-            else:
-                factor = num_empty_cell / 16  # Proporzione di celle vuote
+         # Ora sarà reward a calcolare ovviamente penalità o bonus
+        reward = self.calculate_reward(score=score, valid=valid, game_over=game_over, max_number=max_number)
 
-                # Penalità dinamica basata sullo stato
-                reward = -(self.penalty * (1 - factor) * (max_number / 2048))  #Penalità nel caso in cui l'agente fa un'azione inconcludente
-            
-            if game_over:
-                done = True
-        else:
-            #print("Score attuale:", np.sum(self.game.board))
-            reward += score
-
-            # Bonus per tessere più grandi
-            if max_number > self.previous_max:
-                reward += (max_number - self.previous_max) * 3
-                self.previous_max = max_number
-
-            # Bonus per celle vuote
-            reward += 2 * num_empty_cell
-
-            current_monotonicity = self.calculate_monotonicity()
-            # Bonus per la monotonicità
-            reward += current_monotonicity * 1.5
-
-            if current_monotonicity < self.previous_monotonicity:
-                reward -= (self.previous_monotonicity - current_monotonicity) * 1.5
-
-
-            #Penalizza per griglie piene
-            reward -= (16 - num_empty_cell) * 0.25
-
+        if not valid and game_over:
+            done = True
 
         return self.game.board, reward, done, max_number
     
-    def calculate_monotonicity(self):
-        monotonicity = 0
-        board = self.game.board
-        for row in board:
-            for i in range(len(row) - 1):
-                if row[i] >= row[i + 1]:
-                    monotonicity += 1
-        for col in board.T:
-            for i in range(len(col) - 1):
-                if col[i] >= col[i + 1]:
-                    monotonicity += 1
-        return monotonicity
+    def calculate_reward(self, score, valid, game_over, max_number):
+        reward = 0
+        # ESPERIMENTO, INTRODUZIONE DELLA PROGRESSIONE DI GIOCO
+        # Aumentiamo la penalità per le mosse inutili proporzionalmente al max_number raggiunto.
+        # Ad esempio: penalità = -1 all'inizio, e cresce all'aumentare del max_number o anche log2 di 32 sarà 5
+
+        if max_number < 2:
+            max_number = 2  # questo per evitare di avere zero come risultato perchè log2 di 1 è 0 
+        penalty_scale = int(log2(max_number))
+
+        # Bonus per aver superato un record precedente
+        bonus_progress = 0
+        if max_number > self.previous_max:
+            # Più sarà grande il salto e più grande sarà il bonus, questo perchè stiamo effettivamente progredendo
+            bonus_progress = max_number - self.previous_max
+            self.previous_max = max_number
+        
+        if not valid:
+            # La mossa non sposta nulla
+            if game_over:
+                # Il gioco è finito
+                if max_number == 2048:
+                    # Se la massima tessera raggiunta è tra queste,
+                    # usiamo lo score come ricompensa
+                    reward = bonus_progress + score
+                else:
+                    ratio = max_number / 2048.0
+                    penalty = -10 * (1 - ratio)
+                    reward += penalty
+            else:
+                # Mossa non valida ma non è game over
+                # Penalità proporzionale allo stato di avanzamento
+                reward = -penalty_scale
+        else:
+            # Caso: La mossa è valida
+            # Al momento usiamo soltanto lo score come reward
+            reward = score
+
+            # Aggiungiamo l'eventuale bonus se abbiamo superato il precedente record
+            if bonus_progress > 0:
+                reward += bonus_progress
+
+        return reward
 
 
     def reset(self):
