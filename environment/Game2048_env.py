@@ -148,6 +148,7 @@ class Game2048_env(gym.Env):
         
         # Normalizziamo la reward
         normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
+        #print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
 
         return normalized_reward
 
@@ -222,7 +223,6 @@ if __name__ == "__main__":
         #Ci salviamo anche lo stato in vista dell'interazione con l'agente
         env.showMatrix()
         print(f"Il numero più alto in griglia è: {max_number}")
-        print(f"Reward: {reward}")
 
     print("Numero di mosse: ", numAction)
     print("Game Over!")
