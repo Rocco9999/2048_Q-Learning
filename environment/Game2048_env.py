@@ -148,7 +148,7 @@ class Game2048_env(gym.Env):
         
         # Normalizziamo la reward
         normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
-        #print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
+        print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
 
         return normalized_reward
 
@@ -178,34 +178,66 @@ class AdaptiveRewardNormalizer:
             normalize_static = self._normalize_static(reward)
             return normalize_static, rewards_buffer
         
-        # Calcoliamo media e std delle ultime reward
-        mean = sum(rewards_buffer) / len(rewards_buffer)
-        var = sum((r - mean)**2 for r in rewards_buffer) / len(rewards_buffer)
-        std = math.sqrt(var)
+        # Calcoliamo il min e max dal buffer
+        current_min = min(rewards_buffer)
+        current_max = max(rewards_buffer)
 
-        # Evitiamo std = 0
-        if std < 1e-6:
-            std = 1e-6
-
-        # Definiamo il range dinamico in base a mean e std
-        dynamic_min = mean - self.k * std
-        dynamic_max = mean + self.k * std
-        normalized_reward = self._normalize(reward, dynamic_min, dynamic_max)
+        # Normalizzazione asimmetrica dinamica:
+        # Se reward < 0:
+        #   map [current_min, 0] -> [-1,0]
+        # Se reward >=0:
+        #   map [0, current_max] -> [0,1]
 
         # Normalizziamo in base a questo range dinamico
+        normalized_reward = self._dynamic_asymmetric_normalize(reward, current_min, current_max)
+        
         return normalized_reward, rewards_buffer
 
-    def _normalize(self, reward, min_val, max_val):
-        if max_val == min_val:
-            return 0
-        norm = (reward - min_val) / (max_val - min_val)
-        norm = norm * 2 - 1
-        # Clip nel caso di floating-point rounding
-        return max(-1, min(1, norm))
+    def _dynamic_asymmetric_normalize(self, reward, current_min, current_max):
+        # Assicuriamoci che current_min <= 0 e current_max >=0
+        # Se non è così, significa che non abbiamo reward negative o positive, gestiamo i casi estremi
+        if current_min > 0:
+            # Tutte le reward sono non negative
+            # Normalizziamo come se [0, current_max] -> [0,1]
+            # Se current_max == 0 evitiamo divisioni per zero
+            if current_max == 0:
+                return 0
+            else:
+                return min(reward/current_max,1)
+
+        if current_max < 0:
+            # Tutte le reward sono negative
+            # Normalizziamo come se [current_min, 0] -> [-1,0]
+            # Se current_min == 0 significa che reward=0, ma qui non può accadere dato current_max <0
+            return -1 + (reward - current_min)/(-current_min)
+
+        # Caso generale: abbiamo sia valori negativi che non negativi nel buffer
+        if reward < 0:
+            # Map [current_min,0] -> [-1,0]
+            # formula: norm = -1 + (reward - current_min)*1/(0 - current_min)
+            return -1 + (reward - current_min)/(-current_min)
+        else:
+            # reward >=0
+            # Map [0, current_max] -> [0,1]
+            if current_max == 0:
+                return 0
+            else:
+                return min(reward/current_max,1)
+
 
     def _normalize_static(self, reward):
-        # Usa il range statico come fallback quando abbiamo pochi dati
-        return self._normalize(reward, self.min_val, self.max_val)
+        # Anche nel fallback potremmo usare una versione semplificata della mappatura
+        # Ad esempio, usiamo min_val e max_val come se fossero gli estremi iniziali
+        # Negativi in [min_val,0], positivi in [0,max_val]
+        if reward < 0:
+            # [min_val,0] -> [-1,0]
+            return -1 + (reward - self.min_val)/(-self.min_val)
+        else:
+            # [0,max_val] -> [0,1]
+            if self.max_val == 0:
+                return 0
+            else:
+                return min(reward/self.max_val,1)
 
 if __name__ == "__main__":
     env = Game2048_env()
