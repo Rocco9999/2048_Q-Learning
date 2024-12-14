@@ -148,7 +148,7 @@ class Game2048_env(gym.Env):
         
         # Normalizziamo la reward
         normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
-        #print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
+        print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
 
         return normalized_reward
 
