@@ -74,17 +74,17 @@ class Game2048:
 
 
 class Game2048_env(gym.Env):
-    rewards_buffer = collections.deque(maxlen=100)
+    rewards_buffer = collections.deque()
     def __init__(self):
         super(Game2048_env, self).__init__()
         self.game = Game2048()
         self.score = 0
         self.penalty = 10
-        self.previous_max = 0
+        self.previous_max = 2
         #Osservazioni per l'agente
         self.action_space = spaces.Discrete(4)  # Azioni: sinistra, sopra, destra, sotto
         self.observation_space = spaces.Box(0, 2048, shape=(4, 4), dtype=int)
-
+        self.scaling_factor = 1.2  # Impostato così, ma è pissibile fare uno studio randomico per vedere come ottimizzarlo
                 # Esempio d'uso:
         self.normalizer = AdaptiveRewardNormalizer()
 
@@ -104,39 +104,50 @@ class Game2048_env(gym.Env):
 
         return self.game.board, reward, done, max_number
     
+    def calculate_penalty(self, base_penalty, current_level):
+        # Penalità dinamica decrescente ai livelli più alti
+        return base_penalty / (1 + current_level)
+
+    
     def calculate_reward(self, score, valid, game_over, max_number):
         reward = 0
-        # ESPERIMENTO, INTRODUZIONE DELLA PROGRESSIONE DI GIOCO
-        # Aumentiamo la penalità per le mosse inutili proporzionalmente al max_number raggiunto.
-        # Ad esempio: penalità = -1 all'inizio, e cresce all'aumentare del max_number o anche log2 di 32 sarà 5
+        # ESPERIMENTO, RIFACIMENTO DELLA PROGRESSIONE NEL GIOCO
+        # Divisione del gioco in livelli
 
-        if max_number < 2:
-            max_number = 2  # questo per evitare di avere zero come risultato perchè log2 di 1 è 0 
-        penalty_scale = int(log2(max_number))
+        max_number = max(2, max_number)  # questo perchè ina lcuni casi ho visto che mi dava 0 come max
+
+        # Calcoliamo il livello attuale (logaritmo in base 2)
+        current_level = log2(max_number)
 
         # Bonus per aver superato un record precedente
         bonus_progress = 0
         if max_number > self.previous_max:
-            # Più sarà grande il salto e più grande sarà il bonus, questo perchè stiamo effettivamente progredendo
-            bonus_progress = max_number - self.previous_max
+            bonus_progress = (current_level - log2(self.previous_max)) * (current_level ** self.scaling_factor)
             self.previous_max = max_number
         
+        # Aggiungere un piccolo bonus dinamico se `bonus_progress` è 0
+        dynamic_bonus = 0
+        if bonus_progress == 0 and valid:
+            # Calcola un bonus dinamico basato sul livello corrente
+            dynamic_bonus = current_level * 0.1  # Fattore di scala per controllare l'impatto
+    
+
         if not valid:
             # La mossa non sposta nulla
             if game_over:
                 # Il gioco è finito
-                if max_number in [512,1024,2048]:
-                    # Se la massima tessera raggiunta è tra queste,
-                    # usiamo lo score come ricompensa
-                    reward = bonus_progress + penalty_scale
+                if max_number in [512, 1024, 2048]:
+                    # Reward per un livello massimo significativo
+                    reward = bonus_progress + (current_level ** self.scaling_factor)
                 else:
-                    ratio = max_number / 2048.0
-                    penalty = -10 * (1 - ratio)
-                    reward += penalty
+                    ratio = max_number / 512
+                    penalty = self.calculate_penalty(base_penalty=-10, current_level = current_level)
+                    reward += penalty * (1 - ratio)
             else:
                 # Mossa non valida ma non è game over
                 # Penalità proporzionale allo stato di avanzamento
-                reward = -penalty_scale
+                penalty = self.calculate_penalty(base_penalty=-5, current_level = current_level)
+                reward += penalty
         else:
             # Caso: La mossa è valida
             # Al momento usiamo soltanto lo score come reward
@@ -145,6 +156,13 @@ class Game2048_env(gym.Env):
             # Aggiungiamo l'eventuale bonus se abbiamo superato il precedente record
             if bonus_progress > 0:
                 reward += bonus_progress
+            else:
+            # Aggiungere il bonus dinamico
+                reward += dynamic_bonus
+
+        if max_number >= 512:
+            reward += (current_level ** self.scaling_factor) * 2
+            #Reward per quando supera il 512
         
         # Normalizziamo la reward
         normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
@@ -163,43 +181,92 @@ class Game2048_env(gym.Env):
         print(self.game.board)
 
 class AdaptiveRewardNormalizer:
-    def __init__(self, k=3):
-        self.k = k
+    def __init__(self, min_size=10, cleaning_threshold = 1.5):
         # Valori iniziali di fallback
+        self.min_size = min_size
         self.min_val = -10
         self.max_val = 2048
+        self.cleaning_threshold = cleaning_threshold
+
+    def pulisci_buffer(self, rewards_buffer):
+        # Suddividi il buffer in blocchi
+        if len(rewards_buffer) < self.min_size:
+            return rewards_buffer  # Nessuna pulizia necessaria
+        
+        rewards_list = list(rewards_buffer)
+        # Calcola il primo 90% del buffer
+        first_90_percent = int(len(rewards_list) * 0.90)
+        # Calcola la dimensione dei blocchi (un decimo del primo 90%)
+        if first_90_percent > 0:
+            numRange = max(1, math.ceil(first_90_percent / 10))
+        else:
+            numRange = 1
+        blocks = [rewards_list[i:i + numRange] for i in range(0, first_90_percent, numRange)]
+        variances = [np.var(block) for block in blocks]
+        
+        # Calcola la varianza media e la soglia dinamica
+        mean_variance = np.mean(variances)
+        std_variance = np.std(variances)
+        self.cleaning_threshold = mean_variance + 2.0 * std_variance
+
+        num_anomalous_blocks = sum(1 for var in variances if var > self.cleaning_threshold)
+        if num_anomalous_blocks < len(blocks) * 0.1:  # Rimuovi solo se più del 10% dei blocchi è anomalo
+            return rewards_buffer
+
+        # Identifica i blocchi con varianze anomale
+        indices_to_remove = set()
+        for block_index, var in enumerate(variances):
+            if var > self.cleaning_threshold:
+                start_idx = block_index * numRange
+                end_idx = min((block_index + 1) * numRange, first_90_percent)
+                indices_to_remove.update(range(start_idx, end_idx))
+
+        # Rimuovi gli elementi anomali
+        cleaned_rewards = [v for i, v in enumerate(rewards_list) if i not in indices_to_remove]
+        rewards_buffer = collections.deque(cleaned_rewards)
+
+        # Log per il debug
+        # print(f"Buffer size before cleaning: {len(rewards_list)}")
+        # print(f"Mean variance: {mean_variance:.4f}, Std variance: {std_variance:.4f}")
+        # print(f"Cleaning threshold: {self.cleaning_threshold:.4f}")
+        # print(f"Removed {len(indices_to_remove)} rewards from buffer.")
+        # print(f"New buffer size: {len(rewards_buffer)}")
+
+        return rewards_buffer
     
     def update_and_normalize(self, reward, rewards_buffer):
         # Aggiorna il buffer con la nuova reward
         rewards_buffer.append(reward)
 
+        #ORA AGGIORNIAMO LA GRANDEZZA DEL BUFFER
+        variance = np.var(rewards_buffer)
+        # Calcola la varianza
+        #print("La varianza è: ", variance)
+        #print("Il buffer è lungo: ", len(rewards_buffer))
+            
         # Se non abbiamo abbastanza dati, usiamo i fallback (range statico)
         if len(rewards_buffer) < 10:
             normalize_static = self._normalize_static(reward)
             return normalize_static, rewards_buffer
-        
+
+        # Pulisci il buffer se necessario
+        rewards_buffer = self.pulisci_buffer(rewards_buffer)
+
         # Calcoliamo il min e max dal buffer
         current_min = min(rewards_buffer)
         current_max = max(rewards_buffer)
 
-        # Normalizzazione asimmetrica dinamica:
-        # Se reward < 0:
-        #   map [current_min, 0] -> [-1,0]
-        # Se reward >=0:
-        #   map [0, current_max] -> [0,1]
-
-        # Normalizziamo in base a questo range dinamico
-        normalized_reward = self._dynamic_asymmetric_normalize(reward, current_min, current_max)
+        # Normalizzazione dinamica
+        if current_max > current_min:
+            normalized_reward = self._dynamic_asymmetric_normalize(reward, current_min, current_max)
+        else:
+            normalized_reward = 0
         
         return normalized_reward, rewards_buffer
 
     def _dynamic_asymmetric_normalize(self, reward, current_min, current_max):
-        # Assicuriamoci che current_min <= 0 e current_max >=0
-        # Se non è così, significa che non abbiamo reward negative o positive, gestiamo i casi estremi
         if current_min > 0:
-            # Tutte le reward sono non negative
-            # Normalizziamo come se [0, current_max] -> [0,1]
-            # Se current_max == 0 evitiamo divisioni per zero
+            # Tutte le reward sono positive
             if current_max == 0:
                 return 0
             else:
@@ -207,18 +274,12 @@ class AdaptiveRewardNormalizer:
 
         if current_max < 0:
             # Tutte le reward sono negative
-            # Normalizziamo come se [current_min, 0] -> [-1,0]
-            # Se current_min == 0 significa che reward=0, ma qui non può accadere dato current_max <0
             return -1 + (reward - current_min)/(-current_min)
 
         # Caso generale: abbiamo sia valori negativi che non negativi nel buffer
         if reward < 0:
-            # Map [current_min,0] -> [-1,0]
-            # formula: norm = -1 + (reward - current_min)*1/(0 - current_min)
             return -1 + (reward - current_min)/(-current_min)
         else:
-            # reward >=0
-            # Map [0, current_max] -> [0,1]
             if current_max == 0:
                 return 0
             else:
@@ -226,14 +287,10 @@ class AdaptiveRewardNormalizer:
 
 
     def _normalize_static(self, reward):
-        # Anche nel fallback potremmo usare una versione semplificata della mappatura
-        # Ad esempio, usiamo min_val e max_val come se fossero gli estremi iniziali
-        # Negativi in [min_val,0], positivi in [0,max_val]
+        #Qui utilizziamo valori standard
         if reward < 0:
-            # [min_val,0] -> [-1,0]
             return -1 + (reward - self.min_val)/(-self.min_val)
         else:
-            # [0,max_val] -> [0,1]
             if self.max_val == 0:
                 return 0
             else:
@@ -250,11 +307,11 @@ if __name__ == "__main__":
         # action = int(input("Scegli un'azione (0: sinistra, 1: sopra, 2: destra, 3: sotto): "))
         action = np.random.randint(0,3) #Per testing
         numAction += 1
-        print("L'azione scelta è stata: ", action)
+        #print("L'azione scelta è stata: ", action)
         state, reward, done, max_number = env.step(action)
         #Ci salviamo anche lo stato in vista dell'interazione con l'agente
         env.showMatrix()
         print(f"Il numero più alto in griglia è: {max_number}")
 
-    print("Numero di mosse: ", numAction)
+    #print("Numero di mosse: ", numAction)
     print("Game Over!")
