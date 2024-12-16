@@ -31,15 +31,15 @@ class QLearningAgent:
     def decay_exploration(self):
         self.epsilon = max(self.epsilon_min, self.epsilon - self.epsilon_decay_linear)
 
-def log_debug_info(file_path, episode, action, q_values, reward, max_value):
+def log_debug_info(file_path, episode, action, q_values, reward, total_reward, max_value):
     with open(file_path, mode="a", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow([episode, action, q_values, reward, max_value])
+        writer.writerow([episode, action, q_values, reward, total_reward, max_value])
 
 
 if __name__ == "__main__":
     env = Game2048_env()
-    num_episodes = 500000
+    num_episodes = 100000
     agent = QLearningAgent(num_episodes, action_space=env.action_space.n)
 
 # File per salvare i log
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     # Crea l'intestazione del file CSV
     with open(log_file, mode="w", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow(["Episode", "Action", "Q-Values", "Reward", "Max Value"])
+        writer.writerow(["Episode", "Action", "Q-Values", "Reward", "Total-Reward", "Max Value"])
 
     counterPrint = 0
     for episode in range(num_episodes):
@@ -71,7 +71,7 @@ if __name__ == "__main__":
             
             if done:
                 # Salva le informazioni nel file CSV
-                log_debug_info(log_file, episode, action, q_values, reward, max_value)
+                log_debug_info(log_file, episode, action, q_values, reward, total_reward, max_value)
         
         agent.decay_exploration()  # Riduce il tasso di esplorazione
         if (counterPrint == 1000):

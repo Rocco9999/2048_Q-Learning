@@ -125,10 +125,10 @@ class Game2048_env(gym.Env):
             # La mossa non sposta nulla
             if game_over:
                 # Il gioco è finito
-                if max_number == 2048:
+                if max_number in [512,1024,2048]:
                     # Se la massima tessera raggiunta è tra queste,
                     # usiamo lo score come ricompensa
-                    reward = bonus_progress + score
+                    reward = bonus_progress + penalty_scale
                 else:
                     ratio = max_number / 2048.0
                     penalty = -10 * (1 - ratio)
@@ -148,7 +148,7 @@ class Game2048_env(gym.Env):
         
         # Normalizziamo la reward
         normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
-        print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
+        #print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
 
         return normalized_reward
 
