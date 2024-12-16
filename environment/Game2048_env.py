@@ -165,8 +165,7 @@ class Game2048_env(gym.Env):
             #Reward per quando supera il 512
         
         # Normalizziamo la reward
-        normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
-        #print(f"Reward grezza: {reward}, Reward normalizzata: {normalized_reward}")
+        normalized_reward = self.normalizer.update_and_normalize(reward)
 
         return normalized_reward
 
@@ -243,12 +242,12 @@ class AdaptiveRewardNormalizer:
         # Calcola la varianza
         #print("La varianza è: ", variance)
         #print("Il buffer è lungo: ", len(rewards_buffer))
-            
+
         # Se non abbiamo abbastanza dati, usiamo i fallback (range statico)
         if len(rewards_buffer) < 10:
             normalize_static = self._normalize_static(reward)
             return normalize_static, rewards_buffer
-
+        
         # Pulisci il buffer se necessario
         rewards_buffer = self.pulisci_buffer(rewards_buffer)
 
@@ -312,6 +311,7 @@ if __name__ == "__main__":
         #Ci salviamo anche lo stato in vista dell'interazione con l'agente
         env.showMatrix()
         print(f"Il numero più alto in griglia è: {max_number}")
+        print(f"Reward: {reward}")
 
     #print("Numero di mosse: ", numAction)
     print("Game Over!")
