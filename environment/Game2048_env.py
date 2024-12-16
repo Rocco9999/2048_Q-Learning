@@ -106,29 +106,28 @@ class Game2048_env(gym.Env):
     
     def calculate_reward(self, score, valid, game_over, max_number):
         reward = 0
-        # ESPERIMENTO, INTRODUZIONE DELLA PROGRESSIONE DI GIOCO
-        # Aumentiamo la penalità per le mosse inutili proporzionalmente al max_number raggiunto.
-        # Ad esempio: penalità = -1 all'inizio, e cresce all'aumentare del max_number o anche log2 di 32 sarà 5
+        # ESPERIMENTO, RIFACIMENTO DELLA PROGRESSIONE NEL GIOCO
+        # Divisione del gioco in livelli
 
-        if max_number < 2:
-            max_number = 2  # questo per evitare di avere zero come risultato perchè log2 di 1 è 0 
-        penalty_scale = int(log2(max_number))
+        max_number = max(2, max_number)  # questo perchè ina lcuni casi ho visto che mi dava 0 come max
+
+        # Calcoliamo il livello attuale (logaritmo in base 2)
+        current_level = log2(max_number)
 
         # Bonus per aver superato un record precedente
         bonus_progress = 0
         if max_number > self.previous_max:
-            # Più sarà grande il salto e più grande sarà il bonus, questo perchè stiamo effettivamente progredendo
-            bonus_progress = max_number - self.previous_max
+            scaling_factor = 1.2  # Impostato così, ma è pissibile fare uno studio randomico per vedere come ottimizzarlo
+            bonus_progress = (current_level - log2(self.previous_max)) * (current_level ** scaling_factor)
             self.previous_max = max_number
         
         if not valid:
             # La mossa non sposta nulla
             if game_over:
                 # Il gioco è finito
-                if max_number in [512,1024,2048]:
-                    # Se la massima tessera raggiunta è tra queste,
-                    # usiamo lo score come ricompensa
-                    reward = bonus_progress + penalty_scale
+                if max_number in [512, 1024, 2048]:
+                    # Reward per un livello massimo significativo
+                    reward = bonus_progress + (current_level ** scaling_factor)
                 else:
                     ratio = max_number / 2048.0
                     penalty = -10 * (1 - ratio)
@@ -136,6 +135,7 @@ class Game2048_env(gym.Env):
             else:
                 # Mossa non valida ma non è game over
                 # Penalità proporzionale allo stato di avanzamento
+                penalty_scale = current_level ** 0.8  # Penalità ridotta ai livelli alti
                 reward = -penalty_scale
         else:
             # Caso: La mossa è valida
