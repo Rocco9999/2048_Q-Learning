@@ -165,7 +165,7 @@ class Game2048_env(gym.Env):
             #Reward per quando supera il 512
         
         # Normalizziamo la reward
-        normalized_reward = self.normalizer.update_and_normalize(reward)
+        normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
 
         return normalized_reward
 
@@ -206,7 +206,7 @@ class AdaptiveRewardNormalizer:
         # Calcola la varianza media e la soglia dinamica
         mean_variance = np.mean(variances)
         std_variance = np.std(variances)
-        self.cleaning_threshold = mean_variance + 2.0 * std_variance
+        self.cleaning_threshold = mean_variance + 2.1 * std_variance
 
         num_anomalous_blocks = sum(1 for var in variances if var > self.cleaning_threshold)
         if num_anomalous_blocks < len(blocks) * 0.1:  # Rimuovi solo se più del 10% dei blocchi è anomalo
@@ -241,7 +241,7 @@ class AdaptiveRewardNormalizer:
         variance = np.var(rewards_buffer)
         # Calcola la varianza
         #print("La varianza è: ", variance)
-        #print("Il buffer è lungo: ", len(rewards_buffer))
+        print("Il buffer è lungo: ", len(rewards_buffer))
 
         # Se non abbiamo abbastanza dati, usiamo i fallback (range statico)
         if len(rewards_buffer) < 10:
