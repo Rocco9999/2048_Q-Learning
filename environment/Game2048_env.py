@@ -77,6 +77,7 @@ class Game2048:
 
 class Game2048_env(gym.Env):
     rewards_buffer = collections.deque()
+    iter = 0
     def __init__(self):
         super(Game2048_env, self).__init__()
         self.game = Game2048()
@@ -148,7 +149,7 @@ class Game2048_env(gym.Env):
             else:
                 # Mossa non valida ma non è game over
                 # Penalità proporzionale allo stato di avanzamento
-                penalty = self.calculate_penalty(base_penalty=-5, current_level = current_level)
+                penalty = self.calculate_penalty(base_penalty=-10, current_level = current_level)
                 reward += penalty
         else:
             # Caso: La mossa è valida
@@ -168,6 +169,7 @@ class Game2048_env(gym.Env):
         
         # Normalizziamo la reward
         normalized_reward, Game2048_env.rewards_buffer = self.normalizer.update_and_normalize(reward, Game2048_env.rewards_buffer)
+        #print(f"Reward grezza: {reward} reward normalizzata: {normalized_reward}")
 
         return normalized_reward
 
@@ -190,6 +192,7 @@ class AdaptiveRewardNormalizer:
         self.cleaning_threshold = cleaning_threshold
 
     def pulisci_buffer(self, rewards_buffer):
+        lenBufferPre= len(rewards_buffer)
         # Suddividi il buffer in blocchi
         if len(rewards_buffer) < self.min_size:
             return rewards_buffer  # Nessuna pulizia necessaria
@@ -208,10 +211,11 @@ class AdaptiveRewardNormalizer:
         # Calcola la varianza media e la soglia dinamica
         mean_variance = np.mean(variances)
         std_variance = np.std(variances)
-        self.cleaning_threshold = mean_variance + 2.1 * std_variance
+        self.cleaning_threshold = mean_variance + 2.3 * std_variance
 
         num_anomalous_blocks = sum(1 for var in variances if var > self.cleaning_threshold)
         if num_anomalous_blocks < len(blocks) * 0.1:  # Rimuovi solo se più del 10% dei blocchi è anomalo
+            Game2048_env.iter += 1
             return rewards_buffer
 
         # Identifica i blocchi con varianze anomale
@@ -225,6 +229,9 @@ class AdaptiveRewardNormalizer:
         # Rimuovi gli elementi anomali
         cleaned_rewards = [v for i, v in enumerate(rewards_list) if i not in indices_to_remove]
         rewards_buffer = collections.deque(cleaned_rewards)
+
+        if lenBufferPre > len(rewards_buffer):
+            Game2048_env.iter = 0
 
         # Log per il debug
         # print(f"Buffer size before cleaning: {len(rewards_list)}")
@@ -243,7 +250,7 @@ class AdaptiveRewardNormalizer:
         variance = np.var(rewards_buffer)
         # Calcola la varianza
         #print("La varianza è: ", variance)
-        print("Il buffer è lungo: ", len(rewards_buffer))
+        #print("Il buffer è lungo: ", len(rewards_buffer))
 
         # Se non abbiamo abbastanza dati, usiamo i fallback (range statico)
         if len(rewards_buffer) < 10:
@@ -251,7 +258,8 @@ class AdaptiveRewardNormalizer:
             return normalize_static, rewards_buffer
         
         # Pulisci il buffer se necessario
-        rewards_buffer = self.pulisci_buffer(rewards_buffer)
+        if not(Game2048_env.iter > 5000):
+            rewards_buffer = self.pulisci_buffer(rewards_buffer)
 
         # Calcoliamo il min e max dal buffer
         current_min = min(rewards_buffer)

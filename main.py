@@ -59,7 +59,7 @@ def log_debug_info(file_path, episode, action, q_values, reward, total_reward, m
 
 if __name__ == "__main__":
     env = Game2048_env()
-    num_episodes = 200000
+    num_episodes = 50000
     agent = QLearningAgent(num_episodes, action_space=env.action_space.n)
 
 # File per salvare i log
@@ -71,11 +71,17 @@ if __name__ == "__main__":
         writer.writerow(["Episode", "Action", "Q-Values", "Reward", "Total-Reward", "Max Value"])
 
     counterPrint = 0
+    max_number_in_train = 0
     for episode in range(num_episodes):
         state = env.reset()  # Inizializza l'ambiente
         state = tuple(map(tuple, state))  # Appiattisce la griglia per usarla come chiave nella tabella Q
         done = False
         total_reward = 0
+        if max_number_in_train < np.max(env.game.board):
+            max_number_in_train = np.max(env.game.board)
+
+        if max_number_in_train < 1024 and episode >= num_episodes - 1:
+            num_episodes += 1
 
         while not done:
             action = agent.choose_action(state)  # L'agente sceglie un'azione
@@ -93,6 +99,8 @@ if __name__ == "__main__":
                 # Salva le informazioni nel file CSV
                 log_debug_info(log_file, episode, action, q_values, reward, total_reward, max_value)
         
+        if episode % 10 == 0:
+            print(f"Non aggiorno da: {env.iter} passaggi")
         agent.decay_exploration(episode)  # Riduce il tasso di esplorazione
         if (counterPrint == 1000):
             print(f"Episode {episode}: Total Reward: {total_reward} Grandezza buffer: {len(env.rewards_buffer)}")
