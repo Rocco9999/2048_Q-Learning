@@ -59,7 +59,7 @@ def log_debug_info(file_path, episode, action, q_values, reward, total_reward, m
 
 if __name__ == "__main__":
     env = Game2048_env()
-    num_episodes = 50000
+    num_episodes = 3
     agent = QLearningAgent(num_episodes, action_space=env.action_space.n)
 
 # File per salvare i log
@@ -99,7 +99,7 @@ if __name__ == "__main__":
                 # Salva le informazioni nel file CSV
                 log_debug_info(log_file, episode, action, q_values, reward, total_reward, max_value)
         
-        if episode % 10 == 0:
+        if episode % 10 == 0 and env.iter <=5000:
             print(f"Non aggiorno da: {env.iter} passaggi")
         agent.decay_exploration(episode)  # Riduce il tasso di esplorazione
         if (counterPrint == 1000):
