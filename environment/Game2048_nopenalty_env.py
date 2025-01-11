@@ -112,19 +112,20 @@ class Game2048_env(gym.Env):
         else:
             self.consecutive_action = action
             self.consecutive_count = 1
-            self.last_consecutive_penalty = -1
+        #     self.last_consecutive_penalty = -1
 
         if not valid and game_over:
-            done = True
+             done = True
         
-        # Se superiamo la soglia di azioni uguali consecutive
+        # # Se superiamo la soglia di azioni uguali consecutive
         if self.consecutive_count > self.max_consecutive_actions:
             if self.consecutive_count > 100:
                 done = True
-            penalty = max(self.last_consecutive_penalty * 1.1, -10)
-            self.last_consecutive_penalty = penalty
-            #print(f"Penalità per stallo: {penalty}")
-            reward += penalty
+                reward = 0
+        #     penalty = max(self.last_consecutive_penalty * 1.1, -10)
+        #     self.last_consecutive_penalty = penalty
+        #     #print(f"Penalità per stallo: {penalty}")
+        #     reward += penalty
 
         return self.game.board, reward, done, max_number
     
@@ -132,22 +133,8 @@ class Game2048_env(gym.Env):
         # Penalità dinamica decrescente ai livelli più alti
         return base_penalty / (1 + current_level)
 
-    
     def calculate_reward(self, score, valid, game_over, max_number):
         reward = 0
-        # ESPERIMENTO, RIFACIMENTO DELLA PROGRESSIONE NEL GIOCO
-        # Divisione del gioco in livelli
-
-        max_number = max(2, max_number)  # questo perchè ina lcuni casi ho visto che mi dava 0 come max
-
-        # Calcoliamo il livello attuale (logaritmo in base 2)
-        current_level = log2(max_number)
-
-        # Bonus per aver superato un record precedente
-        bonus_progress = 0
-        if max_number > self.previous_max:
-            bonus_progress = (current_level - log2(self.previous_max)) * (current_level ** self.scaling_factor)
-            self.previous_max = max_number
 
         if not valid:
             # La mossa non sposta nulla
@@ -155,33 +142,65 @@ class Game2048_env(gym.Env):
                 # Il gioco è finito
                 if max_number in [512, 1024, 2048]:
                     # Reward per un livello massimo significativo
-                    reward = bonus_progress + (current_level ** self.scaling_factor)
-                else:
-                    reward -= log2(max_number + 1)
-            else:
-                # Mossa non valida ma non è game over
-                # Penalità proporzionale allo stato di avanzamento
-                reward -= 0.1 * current_level
+                    reward = score
+
         else:
             # Caso: La mossa è valida
             # Al momento usiamo soltanto lo score come reward
             reward = score
 
-            # Aggiungiamo l'eventuale bonus se abbiamo superato il precedente record
-            if bonus_progress > 0:
-                reward += bonus_progress
-            elif bonus_progress == 0:
-                reward += current_level * 0.05
+        return reward
 
-            if max_number >= 512:
-                reward += (current_level ** self.scaling_factor) * 2
-                #Reward per quando supera il 512
+    
+    # def calculate_reward(self, score, valid, game_over, max_number):
+    #     reward = 0
+    #     # ESPERIMENTO, RIFACIMENTO DELLA PROGRESSIONE NEL GIOCO
+    #     # Divisione del gioco in livelli
+
+    #     max_number = max(2, max_number)  # questo perchè ina lcuni casi ho visto che mi dava 0 come max
+
+    #     # Calcoliamo il livello attuale (logaritmo in base 2)
+    #     current_level = log2(max_number)
+
+    #     # Bonus per aver superato un record precedente
+    #     bonus_progress = 0
+    #     if max_number > self.previous_max:
+    #         bonus_progress = (current_level - log2(self.previous_max)) * (current_level ** self.scaling_factor)
+    #         self.previous_max = max_number
+
+    #     if not valid:
+    #         # La mossa non sposta nulla
+    #         if game_over:
+    #             # Il gioco è finito
+    #             if max_number in [512, 1024, 2048]:
+    #                 # Reward per un livello massimo significativo
+    #                 reward = bonus_progress + (current_level ** self.scaling_factor)
+    #             else:
+    #                 reward -= log2(max_number + 1)
+    #         else:
+    #             # Mossa non valida ma non è game over
+    #             # Penalità proporzionale allo stato di avanzamento
+    #             reward -= 0.1 * current_level
+    #     else:
+    #         # Caso: La mossa è valida
+    #         # Al momento usiamo soltanto lo score come reward
+    #         reward = score
+
+    #         # Aggiungiamo l'eventuale bonus se abbiamo superato il precedente record
+    #         if bonus_progress > 0:
+    #             reward += bonus_progress
+    #         elif bonus_progress == 0:
+    #             reward += current_level * 0.05
+
+    #         if max_number >= 512:
+    #             reward += (current_level ** self.scaling_factor) * 2
+    #             #Reward per quando supera il 512
         
-        # Normalizziamo la reward
-        normalized_reward = self.update_and_normalize(reward)
-        #print(f"Reward grezza: {reward} reward normalizzata: {normalized_reward}")
+    #     # Normalizziamo la reward
+    #     normalized_reward = self.update_and_normalize(reward)
+    #     #print(f"Reward grezza: {reward} reward normalizzata: {normalized_reward}")
 
-        return normalized_reward
+    #     return normalized_reward
 
 
     def reset(self):

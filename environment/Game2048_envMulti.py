@@ -82,7 +82,6 @@ class Game2048_env(gym.Env):
         super(Game2048_env, self).__init__()
         self.game = Game2048()
         self.score = 0
-        self.move_score = 0
         self.penalty = 10
         self.previous_max = 2
         #Osservazioni per l'agente
@@ -100,7 +99,6 @@ class Game2048_env(gym.Env):
         max_number = np.max(self.game.board)
         reward = 0
         num_empty_cell = np.count_nonzero(self.game.board == 0) 
-        self.move_score = score
         self.score += score
         done = False
          # Ora sarà reward a calcolare ovviamente penalità o bonus
@@ -127,10 +125,6 @@ class Game2048_env(gym.Env):
             reward += penalty
 
         return self.game.board, reward, done, max_number
-    
-    def calculate_penalty(self, base_penalty, current_level):
-        # Penalità dinamica decrescente ai livelli più alti
-        return base_penalty / (1 + current_level)
 
     
     def calculate_reward(self, score, valid, game_over, max_number):
@@ -184,11 +178,15 @@ class Game2048_env(gym.Env):
         return normalized_reward
 
 
-    def reset(self):
-        #Resetta l'ambiente di gioco dopo aver terminato
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
         self.game = Game2048()
         self.score = 0
-        return self.game.board
+        self.previous_max = 2
+        self.consecutive_action = None
+        self.consecutive_count = 0
+        self.last_consecutive_penalty = -1
+        return self.game.board.copy(), {}
 
     def showMatrix(self):
         print(self.score)
