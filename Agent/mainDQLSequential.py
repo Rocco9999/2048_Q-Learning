@@ -12,7 +12,7 @@ import csv
 import tensorflow as tf
 import os
 
-
+"""Questo è in fase di sviluppo, viene integrata la memoria a priorità e una diversa gestione di esplorazione"""
 
 def log_debug_info(file_path, episode, action, legal_move, q_values, reward, total_reward, state, next_state, done):
     with open(file_path, mode="a", newline="") as file:

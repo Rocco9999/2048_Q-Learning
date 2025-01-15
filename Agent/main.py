@@ -9,6 +9,8 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import csv
 
+"""Questo è il Q-Learning base, no NN"""
+
 class QLearningAgent:
     def __init__(self, total_epochs, action_space, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0, exploration_min=0.01):
         self.q_table = defaultdict(lambda: np.zeros(action_space))  # Tabella Q inizializzata a zero

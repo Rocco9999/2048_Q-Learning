@@ -12,6 +12,9 @@ import matplotlib.pyplot as plt
 import csv
 import os
 
+"""Questo effettua l'addestramento una sola volta a fine gioco, quindi addestra su tutto il game e non sul singolo step, Inoltre utilizza
+il Double Q Network, quindi viene integrato un modello target che viene utilizzato per calcolare i valori q del next state"""
+
 def log_debug_info(file_path, episode, total_reward, max_tile, loss_history):
     with open(file_path, mode="a", newline="") as file:
         writer = csv.writer(file)

@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 import csv
 import tensorflow as tf
 
-
+"""Questo è il DEEP Q LEARNING, funziona con l'ultimo ambiente sviluppato, il modello è il numero 3, non provare con altri modelli
+perchè utilizziamo una memory di keras sviluppata appositamente per il RL che non necessita del next state come parametro"""
 
 def log_debug_info(file_path, episode, action, legal_move, q_values, reward, total_reward, state, next_state, done):
     with open(file_path, mode="a", newline="") as file:
