@@ -7,7 +7,7 @@ from keras import regularizers
 from collections import deque
 import random
 
-
+"""
 class AdaptiveLearningRateScheduler:
     def __init__(self, initial_rate=0.001, min_rate=1e-5, max_rate=0.01, factor_increase=1.2, factor_decrease=0.5, patience=5):
         self.current_rate = initial_rate
@@ -54,7 +54,7 @@ class AdaptiveEpsilon:
                 self.decay_rate = min(self.decay_rate * 1.1, 0.999)
                 self.wait = 0
         self.epsilon = max(self.epsilon * self.decay_rate, self.min_epsilon)
-        return self.epsilon
+        return self.epsilon  """
     
 class DQNModel:
     def __init__(self, state_shape, action_space, learning_rate=0.001):
@@ -67,25 +67,14 @@ class DQNModel:
     def _build_model(self):
         model = Sequential()
         model.add(Flatten(input_shape=self.state_shape))
-        model.add(Dense(256, activation='relu', kernel_initializer='he_uniform', kernel_regularizer=regularizers.l2(1e-5)))
-        model.add(Dropout(0.1))  # Dropout rate of 20%
-        
-        model.add(Dense(128, activation='relu', kernel_initializer='he_uniform',kernel_regularizer=regularizers.l2(1e-5)))
-        model.add(Dropout(0.1))
-        
-        model.add(Dense(64, activation='relu', kernel_initializer='he_uniform',kernel_regularizer=regularizers.l2(1e-5)))
-        model.add(Dropout(0.1))
-
-        model.add(BatchNormalization())
-
-        model.add(Dense(32, activation='relu', kernel_initializer='he_uniform', kernel_regularizer=regularizers.l2(1e-5)))
-        model.add(Dropout(0.1))  # Dropout rate of 20%
-        
-        model.add(Dense(16, activation='relu', kernel_initializer='he_uniform',kernel_regularizer=regularizers.l2(1e-5)))
-        model.add(Dropout(0.1))
-        
-        model.add(Dense(8, activation='relu', kernel_initializer='he_uniform',kernel_regularizer=regularizers.l2(1e-5)))
-        model.add(Dropout(0.1))
+        model.add(Dense(name="1", units=1024, activation="relu"))
+        model.add(Dense(name="2", units=512, activation="relu"))
+        model.add(Dense(name="3", units=256, activation="relu"))
+        model.add(Dense(name="4", units=128, activation="relu"))
+        model.add(Dense(name="5", units=64, activation="relu"))
+        model.add(Dense(name="6", units=32, activation="relu"))
+        model.add(Dense(name="7", units=16, activation="relu"))
+        model.add(Dense(name="8", units=8, activation="relu"))
 
         model.add(Dense(self.action_space, activation='linear'))
         model.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='huber')
@@ -106,8 +95,8 @@ class DQNAgent:
         self.update_target_model()
         self.step_counter = 0
         self.loss_history = []
-        self.adaptive_epsilon = AdaptiveEpsilon(initial_epsilon=1, min_epsilon=0.01, decay_rate=0.995, patience=20)
-        self.lr_scheduler = AdaptiveLearningRateScheduler(initial_rate=0.001, patience=10)
+        # self.adaptive_epsilon = AdaptiveEpsilon(initial_epsilon=1, min_epsilon=0.01, decay_rate=0.995, patience=20)
+        # self.lr_scheduler = AdaptiveLearningRateScheduler(initial_rate=0.001, patience=10)
         self.current_lr = 0
 
 
@@ -132,20 +121,33 @@ class DQNAgent:
             return random.randrange(self.action_space)
         q_values = self.model.predict(np.expand_dims(state, axis=0), verbose=0)
         return np.argmax(q_values[0])
+    
+    
+    @staticmethod
+    def decompress_state(compressed):
+        """
+        Ripristina lo stato originale dalla rappresentazione compressa uint8.
+        """
+        decompressed = np.zeros_like(compressed, dtype=np.uint32)  # Usa uint32 per evitare overflow
+        decompressed[compressed > 0] = 2 ** compressed[compressed > 0]
+        return decompressed
+
 
     def process_episode(self, episode_memory, final_score):
         self.batch_size = len(episode_memory)
         # Estrai dati dall'episodio
         states = np.array([transition[0] for transition in episode_memory])
+        decompressed_state = self.decompress_state(states)
         next_states = np.array([transition[3] for transition in episode_memory])
+        decompressed_next_state = self.decompress_state(next_states)
         actions = [transition[1] for transition in episode_memory]
         rewards = [transition[2] for transition in episode_memory]
         dones = [transition[4] for transition in episode_memory]
 
         # Predizioni batch
-        q_values_current = self.model.predict(states, verbose=0)
-        q_values_next_model = self.model.predict(next_states, verbose=0)
-        q_values_next_target = self.target_model.predict(next_states, verbose=0)
+        q_values_current = self.model.predict(decompressed_state, verbose=0)
+        q_values_next_model = self.model.predict(decompressed_next_state, verbose=0)
+        q_values_next_target = self.target_model.predict(decompressed_next_state, verbose=0)
 
         # Aggiorna i Q-values
         for i in range(len(episode_memory)):
@@ -179,18 +181,20 @@ class DQNAgent:
                 q_values_past[i][past_actions[i]] = target
 
             # Combina i dati dell'episodio corrente con quelli passati
-            combined_states = np.concatenate([states, past_states])
+            combined_states = np.concatenate([decompressed_state, past_states])
             combined_q_values = np.concatenate([q_values_current, q_values_past])
         else:
             # Se il buffer non è sufficiente, usa solo l'episodio corrente
-            combined_states = states
+            combined_states = decompressed_state
             combined_q_values = q_values_current
 
         #print(f"Numero del buffer finale: {len(combined_states)}")
         # Addestra il modello
-        self.epsilon = self.adaptive_epsilon.update(final_score)
-        self.current_lr = self.lr_scheduler.update(final_score)
-        tf.keras.backend.set_value(self.model.optimizer.learning_rate, self.current_lr)
+        #self.epsilon = self.adaptive_epsilon.update(final_score)
+        if self.epsilon > self.epsilon_min:
+            self.epsilon = max(self.epsilon_min, self.epsilon * 0.995)
+        # self.current_lr = self.lr_scheduler.update(final_score)
+        # tf.keras.backend.set_value(self.model.optimizer.learning_rate, self.current_lr)
         history = self.model.fit(combined_states, combined_q_values, batch_size=200, verbose=0)
         self.loss_history.append(history.history['loss'][0])
 
@@ -204,7 +208,7 @@ class DQNAgent:
             self.update_target_model()
             #print(f"Target model aggiornato al passo {self.step_counter}")
 
-        if self.step_counter % 1000 == 0 or len(self.memory) >= 50000:
+        if self.step_counter % 1000 == 0 or len(self.memory) >= 100000:
             self.clean_memory(percentage_to_remove=0.1)
             print(f"Mmeoria pulita al passo {self.step_counter}")
 

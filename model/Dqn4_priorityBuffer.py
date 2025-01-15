@@ -82,7 +82,7 @@ class DQNAgent:
 
         # Normalizzazione incrementale delle priorità
         total_priority = sum(self.priorities)
-        scaled_priorities = [p / total_priority for p in self.priorities]
+        scaled_priorities = np.array([p / total_priority for p in self.priorities], dtype=np.float64)
         mix_ratio = max(0.5, 0.8 - (self.step_counter / 100000))
         random_indices = np.random.choice(len(self.memory), int(self.batch_size * (1 - mix_ratio)))
         priority_indices = np.random.choice(len(self.memory), int(self.batch_size * mix_ratio), p=scaled_priorities)

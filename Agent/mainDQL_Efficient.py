@@ -1,11 +1,16 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from environment.Game2048_nopenalty_env import Game2048_env
 #from model.Dqn1_Model import DQNAgent
 from model.Dqn5_Efficient_Adaptive import DQNAgent
+#from model.Dqn4_priorityBuffer import DQNAgent
 import numpy as np
 import random
 from collections import defaultdict
 import matplotlib.pyplot as plt
 import csv
+import os
 
 def log_debug_info(file_path, episode, total_reward, max_tile, loss_history):
     with open(file_path, mode="a", newline="") as file:
@@ -41,6 +46,24 @@ def plot_results(max_tile, match_score, loss):
         plt.close()
 
 
+def compress_state(state):
+    """
+    Converte una matrice di valori nel formato originale in una matrice compressa uint8.
+    I valori sono rappresentati come esponenti di 2.
+    """
+    compressed = np.zeros_like(state, dtype=np.uint8)
+    compressed[state > 0] = np.log2(state[state > 0]).astype(np.uint8)
+    return compressed
+
+def decompress_state(compressed):
+    """
+    Ripristina lo stato originale dalla rappresentazione compressa uint8.
+    """
+    decompressed = np.zeros_like(compressed, dtype=np.uint32)  # Usa uint32 per evitare overflow
+    decompressed[compressed > 0] = 2 ** compressed[compressed > 0]
+    return decompressed
+
+
 if __name__ == "__main__":
     env = Game2048_env()
     state_shape = env.observation_space.shape  # Ottieni la forma dello stato
@@ -52,7 +75,7 @@ if __name__ == "__main__":
 
 
     # File per salvare i log
-    log_file = "debug_logModelNoPenaltyRegularize.csv"
+    log_file = "log_csv/debug_logModelNoPenaltyRegularize.csv"
 
     # Crea l'intestazione del file CSV
     with open(log_file, mode="w", newline="") as file:
@@ -67,6 +90,8 @@ if __name__ == "__main__":
         done = False
         total_reward = 0
         episode_memory = []
+        if os.path.exists("lastmodel.h5"):
+            agent.load_model("lastmodel.h5")
 
         # print(env.game.board)
         # print("Ecco epsilon:", agent.epsilon)
@@ -87,7 +112,11 @@ if __name__ == "__main__":
             # Esegue l'azione
             next_state, reward, done, info = env.step(action)
 
-            episode_memory.append((state, action, reward, next_state, done))
+            
+            compressed_state = compress_state(state)
+            compressed_next_state = compress_state(next_state)
+
+            episode_memory.append((compressed_state, action, reward, compressed_next_state, done))
 
             #print(env.game.board)
 
@@ -112,6 +141,8 @@ if __name__ == "__main__":
         log_debug_info(log_file, episode, total_reward, max_tile, loss_history)
 
         print(f"Episode {episode}: Total Reward: {total_reward}, Max Tile: {max_tile}, Loss: {loss_history[-1] if loss_history else 'N/A'}, Epsilon: {agent.epsilon} , LR: {agent.current_lr} ")
+
+        agent.save_model("lastmodel.h5")
 
         if max_tile >= 2048:
             reached2048 += 1
