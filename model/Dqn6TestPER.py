@@ -13,38 +13,88 @@ class PrioritizedSequentialMemory(SequentialMemory):
     def __init__(self, limit, alpha=0.6, **kwargs):
         super().__init__(limit, **kwargs)
         self.alpha = alpha  # Controlla la forza della priorità
+
+        # Vettore delle priorità, dimensione = limit
         self.priorities = np.zeros((limit,), dtype=np.float32)
-        self.max_priority = 1.0  # Priorità iniziale alta
-        self.index = 0
+        self.max_priority = 1.0  # Priorità iniziale
 
-    def append(self, *args, **kwargs):
-        super().append(*args, **kwargs)
-        self.priorities[self.index] = self.max_priority
-        self.index = (self.index + 1) % self.limit if len(self) == self.limit else len(self) - 1
+    def append(self, observation, action, reward, terminal=False, training=True, **kwargs):
+        """
+        Sovrascrivi append: keras-rl di solito si aspetta i parametri (observation, action, reward, terminal, ...)
+        Non passiamo next_state qui, perché SequentialMemory lo gestisce tra forward/backward.
+        """
+        super().append(observation=observation,
+                       action=action,
+                       reward=reward,
+                       terminal=terminal,
+                       training=training,
+                       **kwargs)
 
+        # Aggiorniamo la priorità della transizione appena inserita
+        current_index = (self.nb_entries - 1) % self.limit
+        self.priorities[current_index] = self.max_priority
+
+    def _make_full_transition(self, index):
+        """
+        Ricostruisce (state0, action, reward, next_state, done) 
+        usando i vettori: observations, actions, rewards, terminals.
+        Per semplicità, assumiamo window_length=1.
+        """
+        state0 = self.observations[index]
+        action = self.actions[index]
+        reward = self.rewards[index]
+        done   = self.terminals[index]
+
+        # next_state se non è done e c'è un passo successivo
+        if (not done) and (index < self.nb_entries - 1):
+            next_state = self.observations[index + 1]
+        else:
+            next_state = np.zeros_like(state0)
+
+        return (state0, action, reward, next_state, done)
 
     def sample(self, batch_size, beta=0.4):
-        # Campionamento proporzionale alle priorità
-        if len(self) == 0:
+        """
+        Campiona 'batch_size' transizioni PER.
+         Ritorna: (batch, indices, is_weights)
+          - batch: lista di tuple (state0, action, reward, next_state, done)
+        """
+        if self.nb_entries == 0:
             raise ValueError("Replay buffer vuoto.")
-        
-        priorities = self.priorities[:len(self)] ** self.alpha
-        probabilities = priorities / priorities.sum()
 
-        indices = np.random.choice(len(self), batch_size, p=probabilities)
-        batch = [self._get_single_state(index) for index in indices]
+        # Consideriamo solo gli indici [0..nb_entries-1]
+        valid_priorities = self.priorities[:self.nb_entries] ** self.alpha
+        sum_priorities = valid_priorities.sum()
+        if sum_priorities == 0:
+            # Evita division by zero se le priorità sono 0
+            probabilities = np.ones(self.nb_entries, dtype=np.float32) / self.nb_entries
+        else:
+            probabilities = valid_priorities / sum_priorities
 
-        # Calcola i pesi di importanza
-        is_weights = (len(self) * probabilities[indices]) ** -beta
+        # Campioniamo in base alle probabilità
+        indices = np.random.choice(self.nb_entries, size=batch_size, p=probabilities)
+
+        # Ricostruisci la transizione
+        batch = [self._make_full_transition(idx) for idx in indices]
+
+        # Calcolo dei pesi di importanza
+        is_weights = (self.nb_entries * probabilities[indices]) ** -beta
         is_weights /= is_weights.max()
 
         return batch, indices, is_weights
 
     def update_priorities(self, indices, td_errors, epsilon=1e-6):
-        # Aggiorna le priorità basandosi sugli errori TD
+        """
+        Aggiorna la priorità in base all'errore TD.
+        """
         for index, td_error in zip(indices, td_errors):
-            self.priorities[index] = np.abs(td_error) + epsilon
-        self.max_priority = max(self.priorities[:len(self)])
+            p = abs(td_error) + epsilon
+            self.priorities[index] = p
+            self.max_priority = max(self.max_priority, p)
+
+    def __len__(self):
+        return self.nb_entries
+
 
 class DQNModel:
     def __init__(self, state_shape, action_space, learning_rate=0.001):
@@ -65,17 +115,18 @@ class DQNModel:
         model.add(Dense(16, activation='relu'))
         model.add(Dense(8, activation='relu'))
         model.add(Dense(self.action_space, activation='linear'))
-        model.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='huber')
+        model.compile(optimizer=SGD(learning_rate=self.learning_rate), loss='huber')
         return model
 
 class DQNAgent:
-    def __init__(self, state_shape, action_space, gamma=0.90, decay_episodes = 1500, epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.000009, batch_size=256, memory_size=50000, alpha=0.6, beta=0.4, beta_increment=0.001):
+    def __init__(self, state_shape, action_space, gamma=0.90, decay_episodes = 200, epsilon=1.0, epsilon_min=0.02, epsilon_decay=0.995, batch_size=200, memory_size=4000, alpha=0.6, beta=0.4, beta_increment=0.001):
         self.state_shape = state_shape
         self.action_space = action_space
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
         self.decay_episodes = decay_episodes
+        self.epsilon_decay1 = epsilon_decay
         self.epsilon_decay = (epsilon - epsilon_min) / decay_episodes
         self.batch_size = batch_size
         self.memory = PrioritizedSequentialMemory(limit=memory_size, alpha=alpha, window_length=1)
@@ -98,8 +149,8 @@ class DQNAgent:
         self.target_model.set_weights(new_weights)
 
 
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append(state, action, reward, next_state, done)
+    def remember(self, state, action, reward, done):
+        self.memory.append(state, action, reward, done)
 
     def act(self, state, legal_moves):
         if np.random.rand() <= self.epsilon:
@@ -114,32 +165,37 @@ class DQNAgent:
     
     def update_epsilon(self):
         if self.epsilon > self.epsilon_min:
-            self.epsilon -= self.epsilon_decay
+            self.epsilon *= self.epsilon_decay
+            #self.epsilon -= self.epsilon_decay
+    
+    def debug_priorities(self):
+        print("Priorità nel buffer:")
+        valid_slice = self.memory.priorities[:self.memory.nb_entries]
+        print(valid_slice)
+
     
     def replay(self, episode):
         #print("Inizio replay")
         if self.memory.nb_entries < self.batch_size or self.epsilon >= 1:
-            for i, transition in enumerate(self.memory.sample(self.memory.nb_entries)):
-                print(f"Transizione {i}: {transition}")
             return
 
         # Campionamento dal buffer prioritario
         batch, indices, is_weights = self.memory.sample(self.batch_size, beta=self.beta)
         self.beta = min(1.0, self.beta + self.beta_increment)
 
-        states = np.array([transition.state0 for transition in batch])
-        actions = np.array([transition.action for transition in batch])
-        rewards = np.array([transition.reward for transition in batch])
-        new_states = np.array([transition.state1 for transition in batch])
-        terminals = np.array([transition.terminal1 for transition in batch])
+        states      = np.array([b[0] for b in batch])
+        actions     = np.array([b[1] for b in batch])
+        rewards     = np.array([b[2] for b in batch])
+        new_states = np.array([b[3] for b in batch])
+        terminals       = np.array([b[4] for b in batch], dtype=bool)
         new_states = np.squeeze(new_states)
 
         # Ottieni previsioni in un solo passaggio
         states = states.reshape(self.batch_size, 4, 4)
         new_states = new_states.reshape(self.batch_size, 4, 4)
 
-        q_values = self.model.predict(states)
-        next_q_values = self.target_model.predict(new_states)
+        q_values = self.model.predict(states, verbose=0)
+        next_q_values = self.model.predict(new_states, verbose=0)
         targets = q_values.copy()
 
         for i in range(self.batch_size):
@@ -152,12 +208,7 @@ class DQNAgent:
         td_errors = np.abs(targets - q_values).max(axis=1)
         self.memory.update_priorities(indices, td_errors)
 
-        # LOGICA CON TARGET MODEL
-        # next_q_values  = self.target_model.predict(new_states, verbose=0)
-
-        # targets[np.arange(self.batch_size), actions] = rewards + (1 - terminals) * self.gamma * np.max(next_q_values, axis=1)
-
-        history = self.model.fit(states, targets, sample_weight=is_weights, verbose=0)
+        history = self.model.fit(states, targets, epochs=1, sample_weight=is_weights, verbose=0)
         #print("Addestro il modello vero e proprio")
 
         self.loss_history.append(history.history['loss'][0])

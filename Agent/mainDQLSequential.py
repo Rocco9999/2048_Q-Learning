@@ -60,6 +60,7 @@ if __name__ == "__main__":
     max_tile_list = []
     score_list = []
     best_score = 0
+    best_tile = 0
 
 
     # File per salvare i log
@@ -110,7 +111,7 @@ if __name__ == "__main__":
             next_state, reward, done, info = env.step(action)
 
             # Salva la transizione
-            agent.remember(np.array(state), action, reward, np.array(next_state), done)
+            agent.remember(np.array(state), action, reward, done)
 
             # Addestra il modello
             agent.replay(episode)
@@ -121,11 +122,16 @@ if __name__ == "__main__":
             
             total_reward += reward
             
+            agent.update_epsilon()
+            
 
             if done:
                 print(env.game.board)
-                if agent.memory.nb_entries > 3000:
-                    agent.update_epsilon()
+                agent.debug_priorities()
+                # Con epsilon che decade ad ogni fine episodio
+                # if agent.memory.nb_entries > 1000:
+                #     agent.update_epsilon()
+                #     agent.debug_priorities()
 
 
             log_debug_info(
@@ -155,6 +161,19 @@ if __name__ == "__main__":
         # Salva il modello se viene raggiunta una nuova soglia significativa
         max_tile = np.max(env.game.board)
         max_tile_list.append(max_tile)
+        if max_tile > best_tile:
+            best_tile = max_tile
+        if len(max_tile_list) >= 30:
+            # Massimale negli ultimi 20 episodi
+            last_N_max = max(max_tile_list[-30:])
+            
+            # Se negli ultimi 20 episodi non abbiamo raggiunto il best_tile
+            if last_N_max < best_tile and agent.epsilon <= agent.epsilon_min:
+                # allora incrementiamo epsilon
+                old_epsilon = agent.epsilon
+                agent.epsilon = min(0.2, agent.epsilon + 0.1)
+
+
         score_list.append(env.score)
         if env.score >= best_score or (episode % 10) == 0:
             print("Salvo il modello")
