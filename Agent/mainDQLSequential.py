@@ -11,6 +11,9 @@ import matplotlib.pyplot as plt
 import csv
 import tensorflow as tf
 import os
+#from memory_profiler import profile
+#import tracemalloc
+
 
 """Questo è in fase di sviluppo, viene integrata la memoria a priorità e una diversa gestione di esplorazione"""
 
@@ -43,9 +46,42 @@ def plot_results(max_tile, match_score, loss):
         plt.ylabel('Loss')
 
         plt.subplots_adjust(hspace=0.5)
-        plt.savefig('plots/result.png')
+        plt.savefig('plots/result1.png')
 
         plt.close()
+
+def control_matrix(matrix, matrix_modificata):
+
+    righe = len(matrix)
+    colonne = len(matrix[0]) if righe > 0 else 0
+
+    if righe == 4 and colonne == 4:
+        return False, matrix  # Già 4x4
+
+    matrix_modificata = [riga[:] for riga in matrix]  # Crea una copia per evitare di modificare l'originale
+
+    if righe > 4:
+        # Controlla se sono presenti righe duplicate
+        for i in range(righe):
+            for j in range(i + 1, righe):
+                if matrix_modificata[i] == matrix_modificata[j]:
+                    del matrix_modificata[j]  # Elimina la riga duplicata
+                    return (len(matrix_modificata) == 4 and len(matrix_modificata[0]) == 4,
+                            matrix_modificata)
+
+    if colonne > 4:
+        # Controlla se sono presenti colonne duplicate
+        for i in range(colonne):
+            for j in range(i + 1, colonne):
+                colonna_i = [riga[i] for riga in matrix_modificata]
+                colonna_j = [riga[j] for riga in matrix_modificata]
+                if colonna_i == colonna_j:
+                    for riga in matrix_modificata:
+                        del riga[j]  # Elimina la colonna duplicata
+                    return (len(matrix_modificata) == 4 and len(matrix_modificata[0]) == 4,
+                            matrix_modificata)
+
+    return False, matrix_modificata
 
 
 if __name__ == "__main__":
@@ -61,32 +97,47 @@ if __name__ == "__main__":
     score_list = []
     best_score = 0
     best_tile = 0
+    #tracemalloc.start()
 
 
     # File per salvare i log
-    log_file = "log_csv/debug_log_sequential.csv"
-
-    # Crea l'intestazione del file CSV
-    with open(log_file, mode="w", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow(["Episode", "Action", "Legal Moves", "Q-Values", "Reward", "Total Reward", "State", "Next State", "Done"])
+    log_file = "log_csv/debug_log_sequential1.csv"
 
     counterPrint = 0
     episode = 0
-    reached2048 = 0
+    save_directory, load_directory = "agent_saves1", "agent_saves1"
+    resume = False
+    start_episode = 0
+
+    if resume is True:
+        # Crea l'intestazione del file CSV
+        with open(log_file, mode="a", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["Episode", "Action", "Legal Moves", "Q-Values", "Reward", "Total Reward", "State", "Next State", "Done"])
+
+        episode, max_tile_list, score_list, loss_history = agent.load_agent_state(load_directory, start_episode)
+        resume = False
+    else:
+        # Crea l'intestazione del file CSV
+        with open(log_file, mode="w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["Episode", "Action", "Legal Moves", "Q-Values", "Reward", "Total Reward", "State", "Next State", "Done"])
+
+
+
     while True:
         state = env.reset()  # Inizializza l'ambiente
         done = False
         total_reward = 0
-        # if os.path.exists("lastmodel.h5"):
-        #     agent.load_model("lastmodel.h5")
-
-        # print(env.game.board)
-        # print("Ecco epsilon:", agent.epsilon)
+        matrix_edit = np.zeros((4, 4), dtype=int)
+        qxq_state = np.zeros((4, 4), dtype=int)
         
         while not done:
             # Sceglie un'azione
             state= env.game.board
+            nice, qxq_state = control_matrix(state, matrix_edit)
+            if nice:
+                state = qxq_state
             legal_moves = []
             for action in range(4):
                 # Check if the move is legal
@@ -110,28 +161,26 @@ if __name__ == "__main__":
             # Esegue l'azione
             next_state, reward, done, info = env.step(action)
 
+            nice, qxq_state = control_matrix(next_state, matrix_edit)
+            if nice:
+                next_state = qxq_state
+
             # Salva la transizione
             agent.remember(np.array(state), action, reward, done)
 
             # Addestra il modello
-            agent.replay(episode)
-
-            #print(env.game.board)
+            if episode > 2:
+                agent.replay(episode)
 
             # Aggiorna lo stato e accumula reward
             
             total_reward += reward
-            
+
             agent.update_epsilon()
             
 
             if done:
                 print(env.game.board)
-                agent.debug_priorities()
-                # Con epsilon che decade ad ogni fine episodio
-                # if agent.memory.nb_entries > 1000:
-                #     agent.update_epsilon()
-                #     agent.debug_priorities()
 
 
             log_debug_info(
@@ -146,17 +195,16 @@ if __name__ == "__main__":
                     next_state, 
                     done
                 )
-            # print("Stato inziziale")
-            # print(state)
-            # print("Next State")
-            # print(next_state)
+            #Salviamo lo stato attuale della matrice come il prossimo stato per partire
             env.game.board = next_state
 
-        
+        episode += 1  # Incrementa il numero di episodi
+
         if agent.loss_history:
             loss_history.append(agent.loss_history[-1])
         else:
             pass
+            
         
         # Salva il modello se viene raggiunta una nuova soglia significativa
         max_tile = np.max(env.game.board)
@@ -164,41 +212,76 @@ if __name__ == "__main__":
         if max_tile > best_tile:
             best_tile = max_tile
         if len(max_tile_list) >= 30:
-            # Massimale negli ultimi 20 episodi
             last_N_max = max(max_tile_list[-30:])
+
+
+            # Se non si migliora per 10 epoche, riduci lr
+            if max(max_tile_list[-10:]) <= max(max_tile_list):
+                current_lr = agent.model.optimizer.learning_rate.numpy()
+                new_lr = max(current_lr * 0.5, agent.lr_min) # Fattore di riduzione e limite inferiore
+                agent.model.optimizer.learning_rate.assign(new_lr)
+                print(f"Episodio {episode}: Nessun miglioramento in max_tile, learning rate ridotto a {new_lr}")
+
             
             # Se negli ultimi 20 episodi non abbiamo raggiunto il best_tile
-            if last_N_max < best_tile and agent.epsilon <= agent.epsilon_min:
+            if last_N_max < max(max_tile_list) and agent.epsilon <= agent.epsilon_min:
                 # allora incrementiamo epsilon
                 old_epsilon = agent.epsilon
-                agent.epsilon = min(0.2, agent.epsilon + 0.1)
+                agent.epsilon = 0.1990
 
+                # DISATTIVIAMO IL PER QUANDO SIAMO IN STALLO
+                agent.memory.alpha = 0
+                
+        elif len(max_tile_list) >= 20:
+            # Massimale negli ultimi 20 episodi
+            last_N_max = max(max_tile_list[-20:])
+            
+            # Se negli ultimi 20 episodi non abbiamo raggiunto il best_tile
+            if last_N_max < max(max_tile_list) and agent.epsilon <= agent.epsilon_min:
+                # allora incrementiamo epsilon
+                old_epsilon = agent.epsilon
+                agent.epsilon = 0.0990
+
+                #DISATTIVIAMO IL PER QUANDO SIAMO IN STALLO
+                agent.memory.alpha = 0
 
         score_list.append(env.score)
-        if env.score >= best_score or (episode % 10) == 0:
-            print("Salvo il modello")
-            # agent.save_model("lastmodel.h5")
-            best_score = env.score
 
         if max_tile >= 2048:
-            reached2048 += 1
-            agent.save_model(f"dqn_model_2048_{episode}.h5")
-            if reached2048 >= 10:
-                print(f"Ho raggiunto il 2048 all'episodio {episode}!")
-                agent.save_model("dqn_model_2048.h5")
-                break  # Esci dal ciclo infinito
+            agent.save_model(f"dqn_model_{max_tile}_2048_{episode}.h5")
+            break  # Esci dal ciclo infinito
+        elif max_tile >= 1024:
+            agent.save_model(f"modelli1024/dqn_model_{max_tile}_2048_{episode}.h5")  
+        elif max_tile >= 512:
+            agent.save_model(f"modelli512/dqn_model_{max_tile}_2048_{episode}.h5")
 
-        episode += 1  # Incrementa il numero di episodi
-        
+        counterPrint += 1
+
         if (counterPrint == 1):
             print(f"Episode {episode}: Total Reward: {total_reward} Grandezza buffer: {agent.memory.nb_entries} Epsilon: {agent.epsilon}")
             #print(f"Episode: {episode}, State: {state}, Action: {action}, Q-Values: {q_values}, Reward: {reward}")
             counterPrint = 0
 
-        counterPrint += 1
+        
 
         
-        plot_results(max_tile_list, score_list, loss_history)
+        if episode % 10 == 0:
+            plot_results(max_tile_list, score_list, loss_history)
+
+        if episode % 100 == 0 and episode != 0:
+            arrays = {
+                'max_tile_list' : max_tile_list,
+                'score_list' : score_list,
+                'loss_history' : loss_history
+            }
+            agent.save_agent_state(save_directory, episode, arrays)
+
+        # snapshot = tracemalloc.take_snapshot()
+        # top_stats = snapshot.statistics('lineno')
+
+        # print("[ Top 10 ]")
+        # for stat in top_stats[:10]:
+        #     print(stat)
 
 
     

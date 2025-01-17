@@ -8,6 +8,10 @@ from collections import deque
 import random
 from keras.callbacks import ReduceLROnPlateau, LearningRateScheduler, Callback
 from rl.memory import SequentialMemory
+# from memory_profiler import profile
+# import gc
+import os
+import pickle
 
 class PrioritizedSequentialMemory(SequentialMemory):
     def __init__(self, limit, alpha=0.6, **kwargs):
@@ -126,9 +130,10 @@ class DQNAgent:
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
         self.decay_episodes = decay_episodes
-        self.epsilon_decay1 = epsilon_decay
-        self.epsilon_decay = (epsilon - epsilon_min) / decay_episodes
+        self.epsilon_decay = epsilon_decay
+        self.epsilon_decay1 = (epsilon - epsilon_min) / decay_episodes
         self.batch_size = batch_size
+        self.memory_size = memory_size
         self.memory = PrioritizedSequentialMemory(limit=memory_size, alpha=alpha, window_length=1)
         self.beta = beta
         self.beta_increment = beta_increment
@@ -137,16 +142,7 @@ class DQNAgent:
         self.update_target_model()
         self.step_counter = 0
         self.loss_history = []
-
-
-    def update_target_model(self, tau=0.005):
-        model_weights = self.model.get_weights()
-        target_weights = self.target_model.get_weights()
-        new_weights = [
-            tau * mw + (1 - tau) * tw
-            for mw, tw in zip(model_weights, target_weights)
-        ]
-        self.target_model.set_weights(new_weights)
+        self.lr_min = 0.00025
 
 
     def remember(self, state, action, reward, done):
@@ -154,7 +150,7 @@ class DQNAgent:
 
     def act(self, state, legal_moves):
         if np.random.rand() <= self.epsilon:
-            return np.random.randint(self.action_space)
+            return np.random.choice(legal_moves) if legal_moves else np.random.randint(self.action_space)
         
         q_values = self.model.predict(np.expand_dims(state, axis=0), verbose=0)
         if legal_moves:  # Se ci sono mosse valide
@@ -162,11 +158,14 @@ class DQNAgent:
             return legal_moves[max_q_value]
         
         return np.argmax(q_values[0])
+
+    def update_target_model(self):
+        self.target_model.set_weights(self.model.get_weights())
     
     def update_epsilon(self):
         if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-            #self.epsilon -= self.epsilon_decay
+            self.epsilon -= self.epsilon_decay1
+            self.epsilon = max(self.epsilon_min, self.epsilon)
     
     def debug_priorities(self):
         print("Priorità nel buffer:")
@@ -178,7 +177,9 @@ class DQNAgent:
         #print("Inizio replay")
         if self.memory.nb_entries < self.batch_size or self.epsilon >= 1:
             return
-
+        #DISATTIVIAMO LA PER DOPO 200 EPISODI
+        if episode > 200:
+            self.memory.alpha = 0
         # Campionamento dal buffer prioritario
         batch, indices, is_weights = self.memory.sample(self.batch_size, beta=self.beta)
         self.beta = min(1.0, self.beta + self.beta_increment)
@@ -195,7 +196,7 @@ class DQNAgent:
         new_states = new_states.reshape(self.batch_size, 4, 4)
 
         q_values = self.model.predict(states, verbose=0)
-        next_q_values = self.model.predict(new_states, verbose=0)
+        next_q_values = self.target_model.predict(new_states, verbose=0)
         targets = q_values.copy()
 
         for i in range(self.batch_size):
@@ -217,23 +218,90 @@ class DQNAgent:
         if(self.step_counter % 500 == 0):
             print("Aggiorno il modello target")
             self.update_target_model()
-            # print(f"Target model aggiornato al passo {self.step_counter}")
-
-        # if (self.step_counter % 10000 == 0 or len(self.memory) > 50000) and (self.step_counter >= len(self.memory) + int(len(self.memory) * 0.1)):
-        #     self.clean_memory(percentage_to_remove=0.1)
-        #     print(f"Mmeoria pulita al passo {self.step_counter}")
+            print(f"Target model aggiornato al passo {self.step_counter}")
 
     def load_model(self, path):
         self.model = tf.keras.models.load_model(path)
-        #self.update_target_model()
+        self.update_target_model()
 
     def save_model(self, path):
         self.model.save(path)
 
-    def clean_memory(self, percentage_to_remove):
-        """Rimuove una percentuale delle esperienze meno recenti dal buffer."""
-        num_to_remove = int(len(self.memory) * percentage_to_remove)
-        if num_to_remove > 0:
-            print(f"Rimuovo {num_to_remove} esperienze meno recenti dal buffer.")
-            for _ in range(num_to_remove):
-                self.memory.popleft()
+    def save_agent_state(self, directory, episode, arrays):
+        """Salva lo stato completo dell'agente (modello, memoria, variabili)."""
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        # Salva il modello
+        model_path = os.path.join(directory, f"model_episode_{episode}.h5")
+        self.save_model(model_path)
+
+        # Salva il buffer di memoria usando pickle
+        memory_path = os.path.join(directory, f"memory_episode_{episode}.pkl")
+        with open(memory_path, 'wb') as f:
+            pickle.dump(self.memory, f)
+
+        # Salva le altre variabili
+        variables = {
+            'epsilon': self.epsilon,
+            'beta': self.beta,
+            'step_counter': self.step_counter,
+            'loss_history': self.loss_history,
+            # Aggiungi altre variabili se necessario
+        }
+        variables_path = os.path.join(directory, f"variables_episode_{episode}.pkl")
+        with open(variables_path, 'wb') as f:
+            pickle.dump(variables, f)
+
+        arrays_path = os.path.join(directory, f"arrays_episode_{episode}.pkl")
+        with open(arrays_path, 'wb') as f:
+            pickle.dump(arrays, f)
+
+        print(f"Stato dell'agente salvato in: {directory} (episodio {episode})")
+
+    def load_agent_state(self, directory, episode):
+        """Carica lo stato completo dell'agente (modello, memoria, variabili)."""
+        # Carica il modello
+        model_path = os.path.join(directory, f"model_episode_{episode}.h5")
+        if os.path.isfile(model_path):
+            self.load_model(model_path)
+            print("Modello caricato.")
+        else:
+            print("File del modello non trovato. Inizializzazione di un nuovo modello.")
+
+        # Carica il buffer di memoria
+        memory_path = os.path.join(directory, f"memory_episode_{episode}.pkl")
+        if os.path.isfile(memory_path):
+            with open(memory_path, 'rb') as f:
+                self.memory = pickle.load(f)
+            print("Memoria caricata.")
+        else:
+            print("File di memoria non trovato. Inizializzazione di un nuovo buffer.")
+
+        # Carica le altre variabili
+        variables_path = os.path.join(directory, f"variables_episode_{episode}.pkl")
+        if os.path.isfile(variables_path):
+            with open(variables_path, 'rb') as f:
+                variables = pickle.load(f)
+            self.epsilon = variables['epsilon']
+            self.beta = variables['beta']
+            self.step_counter = variables['step_counter']
+            self.loss_history = variables['loss_history']
+            # Carica altre variabili se necessario
+            print("Variabili caricate.")
+        else:
+            print("File delle variabili non trovato. Inizializzazione con valori predefiniti.")
+
+        arrays_path = os.path.join(directory, f"arrays_episode_{episode}.pkl")
+        if os.path.isfile(arrays_path):
+            with open(arrays_path, 'rb') as f:
+                arrays = pickle.load(f)
+            max_tile_list = arrays['max_tile_list']
+            score_list = arrays['score_list']
+            loss_history = arrays['loss_history']
+            # Carica altre variabili se necessario
+            print("Variabili caricate.")
+        else:
+            print("File delle variabili non trovato. Inizializzazione con valori predefiniti.")
+
+        return episode, max_tile_list, score_list, loss_history

@@ -107,17 +107,7 @@ class Game2048_env(gym.Env):
         self.score += score
         done = False
          # Ora sarà reward a calcolare ovviamente penalità o bonus
-        reward = self.calculate_reward(score=score, valid=valid, game_over=game_over, max_number=max_number)
-
-        
-        # if action == self.consecutive_action:
-        #     self.consecutive_count += 1
-        # else:
-        #     self.consecutive_action = action
-        #     self.consecutive_count = 1
-
-        # if self.consecutive_count > 10:
-        #     reward -= 20  # Penalità per mosse ripetitive
+        reward = self.calculate_reward1(score=score, valid=valid, game_over=game_over, max_number=max_number)
 
         if game_over:
             done = True
@@ -141,6 +131,38 @@ class Game2048_env(gym.Env):
         else:
             reward = -1
         return reward
+    
+    def calculate_reward1(self, score, valid, game_over, max_number):
+        reward = 0
+
+        # Bonus per la fusione di tessere
+        if score > 0:
+            reward += score * 0.1  # Bonus proporzionale al punteggio ottenuto
+
+        # Bonus per l'avvicinamento di tessere di alto valore (esempio semplice)
+        reward += np.log2(max_number) * 0.5
+
+        # Bonus per spazi liberi
+        empty_cells = np.count_nonzero(self.game.board == 0)
+        reward += empty_cells * 0.1
+
+        # Penalità per mosse inutili
+        if not valid:
+            reward -= 2
+
+        # Penalità per la dispersione (esempio semplice)
+        non_zero_elements = self.game.board[self.game.board != 0]
+        if non_zero_elements.size > 0:
+            center_of_mass = np.mean(np.argwhere(self.game.board != 0), axis=0)
+            distances = np.linalg.norm(np.argwhere(self.game.board != 0) - center_of_mass, axis=1)
+            dispersion_penalty = np.mean(distances) * 0.05
+            reward -= dispersion_penalty
+
+        # Bonus/Penalità finale
+        if game_over:
+            reward += np.log2(max_number)
+
+        return reward
 
 
     def reset(self):
@@ -152,16 +174,6 @@ class Game2048_env(gym.Env):
     def showMatrix(self):
         print(self.score)
         print(self.game.board)
-    
-    def update_and_normalize(self, reward):
-
-        # Normalizzazione dinamica
-        if reward >= 0:
-            normalized_reward = min(log2(reward + 1), 10)
-        else:
-            normalized_reward = -min(log2(abs(reward - 1)), 10)
-        
-        return normalized_reward
 
 if __name__ == "__main__":
     env = Game2048_env()
