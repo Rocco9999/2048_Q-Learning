@@ -87,7 +87,7 @@ class Game2048_env(gym.Env):
         self.score = 0
         self.move_score = 0
         self.penalty = 10
-        self.previous_max = 2
+        self.prev_max_tile = 2
         #Osservazioni per l'agente
         self.action_space = spaces.Discrete(4)  # Azioni: sinistra, sopra, destra, sotto
         self.observation_space = spaces.Box(0, 2048, shape=(4, 4), dtype=int)
@@ -97,6 +97,11 @@ class Game2048_env(gym.Env):
         self.max_consecutive_actions = 10
         self.last_consecutive_penalty = -1
         self.max_number = 0
+        self.thresholds = {
+                512: 30,
+                1024: 60,
+                2048: 120
+            }
 
     def step(self, action):
         valid, score = self.game.move(action)
@@ -107,60 +112,28 @@ class Game2048_env(gym.Env):
         self.score += score
         done = False
          # Ora sarà reward a calcolare ovviamente penalità o bonus
-        reward = self.calculate_reward1(score=score, valid=valid, game_over=game_over, max_number=max_number)
+        reward = self.calculate_reward2(score=score, valid=valid, game_over=game_over, max_number=max_number)
 
         if game_over:
             done = True
 
         return self.game.moved_board, reward, done, max_number
-
-    def calculate_reward(self, score, valid, game_over, max_number):
-        reward = 0
-        # 1) Bonus se hai superato il max_number visto finora
-        if max_number > self.max_number:
-            self.max_number = max_number
-            reward += np.log2(max_number)
-
-        # 2) Se la partita è finita, aggiungi un bonus/log finale
-        if game_over:
-            reward += np.log2(max_number)
-
-        # 3) Se la mossa è valida, dai un contributo in base al punteggio ottenuto
-        if valid:
-            reward += score / 10.0 + (np.log2(max_number) * 0.1)
-        else:
-            reward = -1
-        return reward
     
-    def calculate_reward1(self, score, valid, game_over, max_number):
+    def calculate_reward2(self, score, valid, game_over, max_number):
         reward = 0
 
-        # Bonus per la fusione di tessere
-        if score > 0:
-            reward += score * 0.1  # Bonus proporzionale al punteggio ottenuto
+        if not valid and not game_over:
+            reward = -10
+        else:
+            reward = score
 
-        # Bonus per l'avvicinamento di tessere di alto valore (esempio semplice)
-        reward += np.log2(max_number) * 0.5
-
-        # Bonus per spazi liberi
-        empty_cells = np.count_nonzero(self.game.board == 0)
-        reward += empty_cells * 0.1
-
-        # Penalità per mosse inutili
-        if not valid:
-            reward -= 2
-
-        # Penalità per la dispersione (esempio semplice)
-        non_zero_elements = self.game.board[self.game.board != 0]
-        if non_zero_elements.size > 0:
-            center_of_mass = np.mean(np.argwhere(self.game.board != 0), axis=0)
-            distances = np.linalg.norm(np.argwhere(self.game.board != 0) - center_of_mass, axis=1)
-            dispersion_penalty = np.mean(distances) * 0.05
-            reward -= dispersion_penalty
-
-        # Bonus/Penalità finale
-        if game_over:
-            reward += np.log2(max_number)
+        if max_number > self.prev_max_tile:
+        # Bonus per premiare il raggiungimento della cella
+            for tile_value, bonus in self.thresholds.items():
+                if tile_value > self.prev_max_tile and tile_value <= max_number:
+                    reward += bonus
+                    print(f"Bonus aggiuntivo per tile raggiunta: {tile_value}")
+            self.prev_max_tile = max_number
 
         return reward
 
@@ -169,6 +142,7 @@ class Game2048_env(gym.Env):
         #Resetta l'ambiente di gioco dopo aver terminato
         self.game = Game2048()
         self.score = 0
+        self.prev_max_tile = 2
         return self.game.board
 
     def showMatrix(self):
