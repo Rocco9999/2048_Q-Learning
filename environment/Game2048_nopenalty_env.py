@@ -98,8 +98,8 @@ class Game2048_env(gym.Env):
         self.last_consecutive_penalty = -1
         self.max_number = 0
         self.thresholds = {
-                512: 30,
-                1024: 60,
+                512: 10,
+                1024: 30,
                 2048: 120
             }
 
@@ -127,13 +127,13 @@ class Game2048_env(gym.Env):
         else:
             reward = score
 
-        if max_number > self.prev_max_tile:
-        # Bonus per premiare il raggiungimento della cella
-            for tile_value, bonus in self.thresholds.items():
-                if tile_value > self.prev_max_tile and tile_value <= max_number:
-                    reward += bonus
-                    print(f"Bonus aggiuntivo per tile raggiunta: {tile_value}")
-            self.prev_max_tile = max_number
+        # if max_number > self.prev_max_tile:
+        # # Bonus per premiare il raggiungimento della cella
+        #     for tile_value, bonus in self.thresholds.items():
+        #         if tile_value > self.prev_max_tile and tile_value <= max_number:
+        #             reward += bonus
+        #             print(f"Bonus aggiuntivo per tile raggiunta: {tile_value}")
+        #     self.prev_max_tile = max_number
 
         return reward
 

@@ -151,11 +151,28 @@ class PrioritizedSequentialMemory(SequentialMemory):
 
         # Trova gli indici degli episodi con il punteggio più basso
         worst_episode_indices = np.argsort(episode_scores)[:n_to_remove]
+        print(f"Indici da rimuovere: {worst_episode_indices}")
 
-        # Filtra gli episodi da conservare
+        #No shuffle
         indices_to_keep = set(range(self.nb_entries))
         for idx in worst_episode_indices:
             indices_to_keep -= set(episode_indices[idx])
+
+
+        #DECOMMENTARE PER MISCHIARE
+        # worst_episode_indices_set = set(worst_episode_indices)
+        # good_episode_indices = []
+        # for i, ep_idx in enumerate(episode_indices):
+        #     if i not in worst_episode_indices_set:
+        #         good_episode_indices.append(ep_idx)
+
+        # # 3) Mescola i blocchi di episodi come unità
+        # random.shuffle(good_episode_indices)
+        # indices_to_keep = []
+        # for ep_idx in good_episode_indices:
+        #     for i_orig in ep_idx:
+        #         indices_to_keep.append(i_orig)
+
 
         # Ricostruisci il buffer mantenendo solo gli indici rimanenti
         new_observations = [self.observations[i] for i in indices_to_keep]
@@ -172,6 +189,7 @@ class PrioritizedSequentialMemory(SequentialMemory):
         for obs, act, rew, term in zip(new_observations, new_actions, new_rewards, new_terminals):
             super().append(observation=obs, action=act, reward=rew, terminal=term)
 
+        print(f"Lunghezza memoria: {self.nb_entries}")
 
         # Ricostruisci `self.priorities` con la dimensione originale
         new_priorities = np.zeros(self.limit, dtype=np.float32)  # Ritorna alla dimensione originale
@@ -228,7 +246,7 @@ class DQNModel:
         return ReLU()(concatenated)
 
 class DQNAgent:
-    def __init__(self, state_shape, action_space, gamma=0.99, decay_episodes = 200, epsilon=0.9, epsilon_min=0.01, epsilon_decay=0.9999, batch_size=64, memory_size=50000, alpha=0.0, beta=1.0, beta_increment=1e-5):
+    def __init__(self, state_shape, action_space, gamma=0.99, decay_episodes = 200, epsilon=0.9, epsilon_min=0.001, epsilon_decay=0.9999, batch_size=64, memory_size=50000, alpha=0.0, beta=1.0, beta_increment=1e-5):
         self.state_shape = state_shape
         self.action_space = action_space
         self.gamma = gamma
@@ -248,6 +266,7 @@ class DQNAgent:
         self.update_target_model()
         self.step_counter = 0
         self.loss_history = []
+        self.change_lr = False
 
     def encode_state(self, board):
         # One-hot encode il valore log2 del board
@@ -262,6 +281,9 @@ class DQNAgent:
         return np.array_equal(state, last_memory[0]) and np.array_equal(next_state, last_memory[3])
 
     def remember(self, state, action, reward, done, next_state):
+        if done and np.max(state) >= 1024:
+            self.change_lr = True
+        
         processed_state = self.encode_state(state)
         processed_next_state = self.encode_state(next_state)
         if self.memory.nb_entries < 3:
@@ -273,6 +295,19 @@ class DQNAgent:
                 self.memory.append(processed_state, action, reward, done)
                 return True
             return False
+
+    def change_lr_function(self):
+        current_lr = self.model.optimizer.learning_rate.numpy()
+        if self.change_lr == True:
+            new_lr = max(current_lr * 0.98, 1e-6)  # Evitiamo che scenda sotto 1e-6
+            tf.keras.backend.set_value(self.model.optimizer.learning_rate, new_lr)
+            print(f"📉 Learning Rate aggiornato a: {new_lr:.8f}")
+            self.change_lr = False
+            return new_lr
+        
+        self.change_lr = False
+        return current_lr
+
 
     def act(self, state):
         self.update_epsilon()
@@ -454,5 +489,87 @@ class DQNAgent:
 
         print("Cancella memoria")
         if self.memory.nb_entries > self.batch_size:
-                self.memory.clean_low_score_episodes(n_to_remove=120)
+                self.memory.clean_low_score_episodes(n_to_remove=99)
         print("Memoria cancellata")
+
+
+
+    def save_agent_state_checkpoint(self, directory, episode, arrays, checkpoint_name):
+        """Salva lo stato completo dell'agente (modello, memoria, variabili)."""
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        # Salva il modello
+        model_path = os.path.join(directory, f"model_{checkpoint_name}.h5")
+        self.save_model(model_path)
+
+        # Salva il buffer di memoria usando pickle
+        memory_path = os.path.join(directory, f"memory_{checkpoint_name}.pkl")
+        with open(memory_path, 'wb') as f:
+            pickle.dump(self.memory, f)
+
+        # Salva le altre variabili
+        variables = {
+            'epsilon': self.epsilon,
+            'beta': self.beta,
+            'step_counter': self.step_counter,
+            'loss_history': self.loss_history,
+            # Aggiungi altre variabili se necessario
+        }
+        variables_path = os.path.join(directory, f"variables_{checkpoint_name}.pkl")
+        with open(variables_path, 'wb') as f:
+            pickle.dump(variables, f)
+
+        arrays_path = os.path.join(directory, f"arrays_{checkpoint_name}.pkl")
+        with open(arrays_path, 'wb') as f:
+            pickle.dump(arrays, f)
+
+        print(f"Stato dell'agente salvato in: {directory} (episodio {episode})")
+
+    def load_agent_state_checkpoint(self, directory, checkpoint_name):
+        """Carica lo stato completo dell'agente (modello, memoria, variabili)."""
+        # Carica il modello
+        model_path = os.path.join(directory, f"model_{checkpoint_name}.h5")
+        if os.path.isfile(model_path):
+            self.load_model(model_path)
+            print("Modello caricato.")
+        else:
+            print("File del modello non trovato. Inizializzazione di un nuovo modello.")
+
+        # Carica il buffer di memoria
+        memory_path = os.path.join(directory, f"memory_{checkpoint_name}.pkl")
+        if os.path.isfile(memory_path):
+            with open(memory_path, 'rb') as f:
+                self.memory = pickle.load(f)
+            print("Memoria caricata.")
+        else:
+            print("File di memoria non trovato. Inizializzazione di un nuovo buffer.")
+
+        # Carica le altre variabili
+        variables_path = os.path.join(directory, f"variables_{checkpoint_name}.pkl")
+        if os.path.isfile(variables_path):
+            with open(variables_path, 'rb') as f:
+                variables = pickle.load(f)
+            self.epsilon = variables['epsilon']
+            self.beta = variables['beta']
+            self.step_counter = variables['step_counter']
+            self.loss_history = variables['loss_history']
+            # Carica altre variabili se necessario
+            print("Variabili caricate.")
+        else:
+            print("File delle variabili non trovato. Inizializzazione con valori predefiniti.")
+
+        arrays_path = os.path.join(directory, f"arrays_{checkpoint_name}.pkl")
+        if os.path.isfile(arrays_path):
+            with open(arrays_path, 'rb') as f:
+                arrays = pickle.load(f)
+            max_tile_list = arrays['max_tile_list']
+            score_list = arrays['score_list']
+            loss_history = arrays['loss_history']
+            episode = arrays['episode']
+            # Carica altre variabili se necessario
+            print("Variabili caricate.")
+        else:
+            print("File delle variabili non trovato. Inizializzazione con valori predefiniti.")
+
+        return episode, max_tile_list, score_list, loss_history

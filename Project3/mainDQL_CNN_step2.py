@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import csv
 import tensorflow as tf
 import os
+from tqdm import tqdm
 #from memory_profiler import profile
 #import tracemalloc
 
@@ -18,10 +19,10 @@ import os
 """Questo è stato addestrato due volte, la prima partendo da zero e la seconda caricando un modello pre addestrato
 Le cartelle in cui salva e i file sono questi agent_savesCNN_NOPER_part2 e noper1. Ogni parte è il retrain, attualmente siamo al 3 retrain"""
 
-def log_debug_info(file_path, episode, action, legal_move, reward, total_reward, state, next_state, done, memory_saved):
+def log_debug_info(file_path, episode, action, legal_move, reward, total_reward, state, done, memory_saved, game_step):
     with open(file_path, mode="a", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow([episode, episode, action, legal_move, reward, total_reward, state, next_state, done, memory_saved])
+        writer.writerow([episode, episode, action, legal_move, reward, total_reward, state, done, memory_saved, game_step])
 
 def plot_results(max_tile, match_score, loss):
         # Plot Max Tile
@@ -47,7 +48,7 @@ def plot_results(max_tile, match_score, loss):
         plt.ylabel('Loss')
 
         plt.subplots_adjust(hspace=0.5)
-        plt.savefig('Project3/plots/resultCNN_NOPER_part2.png')
+        plt.savefig('Project3/plots/resultCNN_NOPER_part6.png')
 
         plt.close()
 
@@ -101,29 +102,39 @@ if __name__ == "__main__":
     best_score = 0
     best_tile = 0
     prev_max_tile = 0
+    prev_step = 0
     #tracemalloc.start()
+
+    block_scores = []        # Lista con la media di max_tile di ogni blocco
+    BLOCK_SIZE = 20          # Episodi per blocco
+
+    # Queste 2 variabili servono per monitorare il blocco in corso
+    current_block_max_tiles = []  # memorizza i max tile di questo blocco
+    block_index = 0               # Contatore di blocchi conclusi
+    restored_consecutive = 0
 
 
     # File per salvare i log
-    log_file = "Project3/log_csv/debug_log_sequentialCNN_NOPER_part2.csv"
+    log_file = "Project3/log_csv/debug_log_sequentialCNN_NOPER_part6.csv"
 
     counterPrint = 0
     episode = 0
-    save_directory, load_directory = "Project3/agent_savesCNN_NOPER_part2", "Project3/agent_savesCNN_NOPER_part2"
+    save_directory, load_directory = "Project3/agent_savesCNN_NOPER_part6", "Project3/agent_savesCNN_NOPER_part6"
+    checkpoint_directory = "Project3/checkpoint"
     resume = True
-    start_episode = 300
-    # model_path = os.path.join("Project3/agent_savesCNN_NOPER_part1", f"model_episode_{1000}.h5")
+    start_episode = 1900
+    # model_path = os.path.join("Project3/agent_savesCNN_NOPER_part5", f"model_episode_{1000}.h5")
     # agent.load_model(model_path)
-    # memory_path = os.path.join("Project3/agent_savesCNN_NOPER_part1", f"memory_episode_{1000}.pkl")
+    # memory_path = os.path.join("Project3/agent_savesCNN_NOPER_part5", f"memory_episode_{1000}.pkl")
     # agent.load_memory(memory_path)
-    # agent.epsilon_start = 0.2
+    # agent.epsilon_start = 0.01
     # agent.epsilon_decay = 0.9999
 
     if resume is True:
         # Crea l'intestazione del file CSV
         with open(log_file, mode="a", newline="") as file:
             writer = csv.writer(file)
-            writer.writerow(["Episode", "Action", "Legal Moves", "Reward", "Total Reward", "State", "Next State", "Done", "Ho salvato"])
+            writer.writerow(["Episode", "Action", "Legal Moves", "Reward", "Total Reward", "State", "Done", "Ho salvato", "Mosse"])
 
         episode, max_tile_list, score_list, loss_history = agent.load_agent_state(load_directory, start_episode)
         resume = False
@@ -133,7 +144,7 @@ if __name__ == "__main__":
         # Crea l'intestazione del file CSV
         with open(log_file, mode="w", newline="") as file:
             writer = csv.writer(file)
-            writer.writerow(["Episode", "Action", "Legal Moves", "Reward", "Total Reward", "State", "Next State", "Done", "Ho salvato"])
+            writer.writerow(["Episode", "Action", "Legal Moves", "Reward", "Total Reward", "State", "Done", "Ho salvato", "Mosse"])
 
 
 
@@ -144,8 +155,10 @@ if __name__ == "__main__":
         repeated_action_count = 0
         last_action = None
         memory_saved = None
+        prev_step = agent.step_counter
 
         while not done:
+            game_step = agent.step_counter - prev_step
             # Sceglie un'azione
             state= env.game.board
             nice, qxq_state = control_matrix(state)
@@ -166,7 +179,8 @@ if __name__ == "__main__":
             else:
                 repeated_action_count = 0
 
-            if repeated_action_count > 20 and not memory_saved:
+            #if repeated_action_count > 5 and not memory_saved:
+            if not memory_saved:
                 # Forza un'esplorazione
                 action = agent.act_ripetitive(state, legal_moves)
 
@@ -187,14 +201,15 @@ if __name__ == "__main__":
 
             if done:
                 final_tile = np.max(next_state)
-                if final_tile <= 64:
-                    reward -= 40
-                elif final_tile <= 128:
-                    reward -= 30
-                elif final_tile <= 256:
-                    reward -= 20
+                semi_final_tile = np.sort(next_state.flatten())[-2] if next_state.size > 1 else 0
+                if final_tile >= 2048:
+                    reward += 100
+                elif final_tile >= 1024:
+                    if semi_final_tile >= 1024:
+                        reward += 50
+                    else:
+                        reward += 0
                 else:
-                    # Nessuna penalità se supera 256
                     pass
 
             nice, qxq_next_state = control_matrix(next_state)
@@ -207,25 +222,17 @@ if __name__ == "__main__":
             # Addestra il modello
             if done:
                 print(env.game.board)
-                for _ in range(100):
+                for _ in tqdm(range(100), desc="Train progress"):
                     agent.replay(episode)
 
+            #Abbassiamo il learning rate del 2% ogni volta che raggiunge il 2048
+            current_lr = agent.change_lr_function()
+
             # Aggiorna lo stato e accumula reward
-            
             total_reward += reward
 
-            log_debug_info(
-                    log_file, 
-                    episode, 
-                    action, 
-                    legal_moves, 
-                    reward, 
-                    total_reward, 
-                    state, 
-                    next_state, 
-                    done,
-                    memory_saved
-                )
+            log_debug_info(log_file, episode, action, legal_moves, reward, total_reward, state, done, memory_saved, game_step)
+
             #Salviamo lo stato attuale della matrice come il prossimo stato per partire
             env.game.board = next_state
 
@@ -235,13 +242,6 @@ if __name__ == "__main__":
             loss_history.append(agent.loss_history[-1])
         else:
             pass
-
-        #Aggiornamento del modello target
-
-        if (episode % 20) == 0:
-            print("Aggiorno il modello target")
-            agent.update_target_model()
-            
         
         # Salva il modello se viene raggiunta una nuova soglia significativa
         max_tile = np.max(env.game.board)
@@ -253,25 +253,75 @@ if __name__ == "__main__":
 
         if max_tile >= 2048:
             agent.save_model(f"Project3/dqn_model_{max_tile}_2048_{episode}.h5")
-            break  # Esci dal ciclo infinito
+            #break  # Esci dal ciclo infinito
         elif max_tile >= 1024:
             agent.save_model(f"Project3/modelli1024/dqn_model_{max_tile}_2048_{episode}.h5")  
+            print("Trovato il 1024")
         elif max_tile >= 512:
-            agent.save_model(f"Project3/modelli512/dqn_model_{max_tile}_2048_{episode}.h5")
+            print("Trovato il 512")
+            #agent.save_model(f"Project3/modelli512/dqn_model_{max_tile}_2048_{episode}.h5")
 
-        counterPrint += 1
-
-        if (counterPrint == 1):
-            print(f"Episode {episode}: Total Reward: {total_reward} Grandezza buffer: {agent.memory.nb_entries} Epsilon: {agent.epsilon}")
-            #print(f"Episode: {episode}, State: {state}, Action: {action}, Q-Values: {q_values}, Reward: {reward}")
-            counterPrint = 0
-
+        # INIZIO OPERAZIONI PERIODICHE 
+        # OGNI 10 EPISODI AGGIORNO IL GRAFICO
+        # OGNI 20 EPISODI AGGIORNO IL MODELLO TARGET E FACCIO CONTROLLI PER ROLLBACK
+        # OGNI 50 EPISODI CANCELLO DAL BUFFER LE PEGGIORI 10 ESPERIENZE NEGATIVE
+        # OGNI 100 EPISODI MI FACCIO UN SALVATAGGIO ROBUSTO DI TUTTO PER RIPRISTINARLO IN CASO DI ERRORI E STOP
+        
         if episode % 10 == 0:
             plot_results(max_tile_list, score_list, loss_history)
 
-        if episode % 100 == 0 and episode != 0:
+        #Aggiornamento del modello target
+        if (episode % 20) == 0:
+            print("Aggiorno il modello target")
+            agent.update_target_model()
+
+        # #BLOCCO DI ROLLBACK
+        # current_block_max_tiles.append(max_tile)
+
+        # if episode % BLOCK_SIZE == 0:
+        #     block_index += 1
+        #     avg_max_tile = np.mean(current_block_max_tiles)
+        #     block_scores.append(avg_max_tile)
+        #     print(f"Blocco {block_index}: media max tile={avg_max_tile:.2f}")
+
+        #     checkpoint_name = "block_checkpoint"
+
+        #     # Confronto con il blocco precedente
+        #     if len(block_scores) > 1:
+        #         prev_score = block_scores[-2]
+        #         if (prev_score - avg_max_tile) > 50.0 and restored_consecutive < 2:
+        #             # -> ROLLBACK
+        #             print(f"Peggioramento: blocco {block_index} ({avg_max_tile:.2f}) < blocco {block_index-1} ({prev_score:.2f}). ROLLBACK!")
+        #             # Carica tutto
+        #             episode, max_tile_list, score_list, loss_history = agent.load_agent_state_checkpoint(checkpoint_directory, checkpoint_name)
+                    
+        #             # Sovrascrivo block_scores[-1] con prev_score per dire "non aggiorno quest'ultimo"
+        #             block_scores[-1] = prev_score
+        #             restored_consecutive += 1
+
+        #         else:
+        #             # Salva checkpoint di routine
+        #             arrays = {'max_tile_list': max_tile_list, 'score_list': score_list, 'loss_history': loss_history, 'episode': episode}
+        #             agent.save_agent_state_checkpoint(checkpoint_directory, episode, arrays, checkpoint_name)
+        #             # Salviamo anche in block_checkpoints
+        #             print("Nessun peggioramento, continuo regolare e salvo il checkpoint.")
+        #             restored_consecutive = 0
+        #     else:
+        #         arrays = {'max_tile_list': max_tile_list, 'score_list': score_list, 'loss_history': loss_history, 'episode': episode}
+        #         agent.save_agent_state_checkpoint(checkpoint_directory, episode, arrays, checkpoint_name)
+
+        #     # reset del blocco
+        #     current_block_max_tiles = []
+
+
+        #pulisco la memoria ogni 50 episodi
+        if episode % 50 == 0 and episode != 0:
             if agent.memory.nb_entries > agent.batch_size:
-                agent.memory.clean_low_score_episodes(n_to_remove=20)
+                agent.memory.clean_low_score_episodes(n_to_remove=10)
+
+
+        #Salvo tutto ogni 100 episodi
+        if episode % 100 == 0 and episode != 0:
             arrays = {
                 'max_tile_list' : max_tile_list,
                 'score_list' : score_list,
@@ -279,5 +329,8 @@ if __name__ == "__main__":
             }
             agent.save_agent_state(save_directory, episode, arrays)
 
+        #STAMPA
+        print(f"Episode {episode}: Total Reward: {total_reward} Grandezza buffer: {agent.memory.nb_entries} Epsilon: {agent.epsilon} Numero di step: {game_step} LR: {current_lr}")
+        #print(f"Episode: {episode}, State: {state}, Action: {action}, Q-Values: {q_values}, Reward: {reward}")
 
     
