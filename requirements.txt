@@ -1,7 +1,8 @@
-numpy
+numpy==1.23.5
 gymnasium
 tensorflow==2.10
 matplotlib
 plotly
 pygame
 scipy
+keras-rl
