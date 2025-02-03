@@ -301,7 +301,7 @@ class DQNAgent:
         if self.change_lr == True:
             new_lr = max(current_lr * 0.98, 1e-6)  # Evitiamo che scenda sotto 1e-6
             tf.keras.backend.set_value(self.model.optimizer.learning_rate, new_lr)
-            print(f"📉 Learning Rate aggiornato a: {new_lr:.8f}")
+            print(f"Learning Rate aggiornato a: {new_lr:.8f}")
             self.change_lr = False
             return new_lr
         
@@ -388,6 +388,15 @@ class DQNAgent:
         # Aggiorna le priorità nel replay buffer (se usi Prioritized Experience Replay)
         td_errors = tf.abs(tf.gather(targets, actions, axis=1, batch_dims=1) - q_values_for_actions)
         self.memory.update_priorities(indices, td_errors.numpy())
+
+
+        # ADDESTRAMENTO CON METOFO FIT DI TENSORFLOW, MOLTO PIù LENTO
+        # td_errors = tf.abs(targets - q_values).max(axis=1)
+        # self.memory.update_priorities(indices, td_errors)
+        
+        # history = self.model.fit(states, targets, epochs=1, verbose=0)
+        # self.loss_history.append(history.history['loss'][0])
+        # #print("Addestro il modello vero e proprio")
 
 
     def load_model(self, path):
