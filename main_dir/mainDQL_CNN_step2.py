@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from environment.Game2048_nopenalty_env import Game2048_env
 #from model.Dqn1_Model import DQNAgent
-from Project3.Dqn8TestNOPERCNN import DQNAgent
+from Dqn8TestNOPERCNN import DQNAgent
 import numpy as np
 import random
 from collections import defaultdict
