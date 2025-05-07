@@ -27,7 +27,7 @@ Implementare e addestrare un agente in grado di giocare a 2048 apprendendo trami
 
 ```bash
 # Clona il repository
-git clone <[URL_DEL_REPOSITORY](https://github.com/Rocco9999/2048_Q-Learning)>
+git clone <https://github.com/Rocco9999/2048_Q-Learning>
 cd 2048-qlearning-agent
 
 # Crea e attiva l'ambiente virtuale (Windows)
